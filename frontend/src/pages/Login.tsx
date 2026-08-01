@@ -1,18 +1,12 @@
 import { useState, type FormEvent } from "react"
-import { AlertCircle, KeyRound, Loader2, Mail } from "lucide-react"
+import { motion } from "motion/react"
+import { KeyRound, Lock, Mail } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
 import { useAuth } from "@/contexts/AuthContext"
+import { Button } from "@/ui/Button"
+import { ErrorNote } from "@/ui/Feedback"
+import { Field } from "@/ui/Field"
+import { AuthCanvas } from "@/ui/AuthCanvas"
 
 /** Firebase error codes mapped to something a mill supervisor can act on. */
 function readableError(error: unknown): string {
@@ -48,160 +42,129 @@ export function Login() {
   const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
 
-  async function handlePasswordSignIn(event: FormEvent) {
+  async function run(kind: typeof busy, action: () => Promise<void>) {
+    setError("")
+    setNotice("")
+    setBusy(kind)
+    try {
+      await action()
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy("")
+    }
+  }
+
+  function handlePasswordSignIn(event: FormEvent) {
     event.preventDefault()
-    setError("")
-    setNotice("")
-    setBusy("password")
-    try {
-      await signInWithPassword(email, password)
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy("")
-    }
+    void run("password", () => signInWithPassword(email, password))
   }
 
-  async function handleGoogle() {
-    setError("")
-    setNotice("")
-    setBusy("google")
-    try {
-      await signInWithGoogle()
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy("")
-    }
-  }
-
-  async function handleReset() {
+  function handleReset() {
     if (!email.trim()) {
-      setError("Enter your email address first, then choose Reset password.")
+      setError("Enter your email address first, then choose Forgot password.")
       return
     }
-    setError("")
-    setBusy("reset")
-    try {
+    void run("reset", async () => {
       await resetPassword(email)
       // Deliberately not revealing whether the address exists.
       setNotice(
         `If an account exists for ${email.trim()}, a reset link is on its way.`,
       )
-    } catch (caught) {
-      setError(readableError(caught))
-    } finally {
-      setBusy("")
-    }
+    })
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-primary-foreground">
-            A
-          </div>
-          <CardTitle className="text-2xl">ASM Lungi Works</CardTitle>
-          <CardDescription>
-            Sign in to record production and wages
-          </CardDescription>
-        </CardHeader>
+    <AuthCanvas
+      title="ASM Lungi Works"
+      subtitle="Sign in to record production and wages"
+    >
+      {error && <ErrorNote message={error} />}
+      {notice && (
+        <p className="flex items-start gap-2 rounded-[14px] border border-[var(--border-subtle)] bg-[var(--success-soft)] px-4 py-3 text-[13.5px] text-[var(--success)]">
+          <Mail className="mt-0.5 size-4 shrink-0" />
+          {notice}
+        </p>
+      )}
 
-        <CardContent className="space-y-4">
-          {error && (
-            <p
-              role="alert"
-              className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
-            >
-              <AlertCircle className="mt-0.5 size-4 shrink-0" />
-              {error}
-            </p>
-          )}
-          {notice && (
-            <p className="flex items-start gap-2 rounded-md bg-success/10 p-3 text-sm text-success">
-              <Mail className="mt-0.5 size-4 shrink-0" />
-              {notice}
-            </p>
-          )}
+      <Button
+        variant="secondary"
+        size="lg"
+        fullWidth
+        loading={busy === "google"}
+        disabled={busy !== ""}
+        onClick={() => void run("google", signInWithGoogle)}
+        icon={busy === "google" ? undefined : <GoogleMark />}
+      >
+        Continue with Google
+      </Button>
 
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => void handleGoogle()}
-            disabled={busy !== ""}
-          >
-            {busy === "google" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <GoogleMark />
-            )}
-            Continue with Google
-          </Button>
+      <div className="flex items-center gap-3 py-1">
+        <span className="h-px flex-1 bg-[var(--border-subtle)]" />
+        <span className="text-[11.5px] font-medium uppercase tracking-[0.07em] text-[var(--text-tertiary)]">
+          or
+        </span>
+        <span className="h-px flex-1 bg-[var(--border-subtle)]" />
+      </div>
 
-          <div className="flex items-center gap-3">
-            <Separator className="flex-1" />
-            <span className="text-xs text-muted-foreground">OR</span>
-            <Separator className="flex-1" />
-          </div>
+      <form onSubmit={handlePasswordSignIn} className="space-y-3">
+        <Field
+          label="Email"
+          type="email"
+          autoComplete="username"
+          required
+          icon={<Mail className="size-[18px]" />}
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        <Field
+          label="Password"
+          type="password"
+          autoComplete="current-password"
+          required
+          icon={<Lock className="size-[18px]" />}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+        <Button
+          type="submit"
+          size="lg"
+          fullWidth
+          loading={busy === "password"}
+          disabled={busy !== ""}
+          icon={<KeyRound className="size-4" />}
+        >
+          Sign in
+        </Button>
+      </form>
 
-          <form onSubmit={handlePasswordSignIn} className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="username"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@company.com"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="••••••••"
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={busy !== ""}>
-              {busy === "password" ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <KeyRound className="size-4" />
-              )}
-              Sign in
-            </Button>
-          </form>
+      <button
+        type="button"
+        onClick={handleReset}
+        disabled={busy !== ""}
+        className="w-full text-[13.5px] text-[var(--accent)] transition-opacity hover:opacity-70 disabled:opacity-40"
+      >
+        {busy === "reset" ? "Sending…" : "Forgot your password?"}
+      </button>
 
-          <button
-            type="button"
-            onClick={() => void handleReset()}
-            disabled={busy !== ""}
-            className="w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:opacity-50"
-          >
-            {busy === "reset" ? "Sending…" : "Forgot your password?"}
-          </button>
-
-          <p className="border-t pt-4 text-center text-xs text-muted-foreground">
-            Accounts are created by an administrator. There is no public
-            sign-up — contact your admin if you need access.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+      <p className="border-t border-[var(--border-subtle)] pt-5 text-center text-[12.5px] leading-relaxed text-[var(--text-tertiary)]">
+        Accounts are created by an administrator. There is no public sign-up —
+        contact your admin if you need access.
+      </p>
+    </AuthCanvas>
   )
 }
 
 function GoogleMark() {
   return (
-    <svg className="size-4" viewBox="0 0 24 24" aria-hidden="true">
+    <motion.svg
+      className="size-4"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      initial={{ scale: 0.85, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ duration: 0.25 }}
+    >
       <path
         fill="#4285F4"
         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -218,6 +181,6 @@ function GoogleMark() {
         fill="#EA4335"
         d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1a11 11 0 0 0-9.82 6.05l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"
       />
-    </svg>
+    </motion.svg>
   )
 }

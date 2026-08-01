@@ -1,6 +1,11 @@
 export type Shift = "DAY" | "NIGHT"
 export type UserRole = "ADMIN" | "STAFF"
 
+/** Reed/pick count of the cloth. Each carries its own piece rate. */
+export type PickType = "88x96" | "88x92" | "88x80"
+
+export const PICK_TYPES: PickType[] = ["88x96", "88x92", "88x80"]
+
 export interface AppUser {
   id: number
   email: string
@@ -27,6 +32,8 @@ export interface Loom {
   is_active: boolean
   created_at: string
   shed_name: string
+  /** "AA - 3" — the loom's name wherever a person reads it. */
+  label: string
 }
 
 export interface Worker {
@@ -34,18 +41,17 @@ export interface Worker {
   name: string
   phone: string
   shed_id: number | null
-  loom_id: number | null
   rate_per_meter: number
   is_active: boolean
   created_at: string
   shed_name: string
-  loom_number: string
 }
 
 export interface ProductionEntry {
   id: number
   entry_date: string
   shift: Shift
+  pick_type: PickType
   worker_id: number
   loom_id: number
   meters: number
@@ -55,6 +61,7 @@ export interface ProductionEntry {
   worker_name: string
   loom_number: string
   shed_name: string
+  loom_label: string
 }
 
 export interface Dispatch {
@@ -77,12 +84,45 @@ export interface SalaryRow {
 }
 
 export interface SalaryReport {
-  period: "daily" | "weekly" | "monthly"
+  period: string
   start_date: string
   end_date: string
   rows: SalaryRow[]
   total_meters: number
   total_amount: number
+}
+
+export interface RateGroup {
+  rate: number
+  pick_types: PickType[]
+  meters: number
+  amount: number
+}
+
+export interface ReceiptCell {
+  loom_label: string
+  meters: number | null
+}
+
+export interface ReceiptRow {
+  entry_date: string
+  cells: ReceiptCell[]
+  total: number
+}
+
+export interface SalaryReceipt {
+  worker_id: number
+  worker_name: string
+  phone: string
+  start_date: string
+  end_date: string
+  loom_labels: string[]
+  rows: ReceiptRow[]
+  loom_totals: ReceiptCell[]
+  rate_groups: RateGroup[]
+  total_meters: number
+  total_amount: number
+  average_rate: number
 }
 
 export interface DashboardStats {

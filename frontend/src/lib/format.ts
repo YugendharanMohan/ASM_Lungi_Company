@@ -12,7 +12,18 @@ const decimal = new Intl.NumberFormat("en-IN", {
 
 const integer = new Intl.NumberFormat("en-IN")
 
+// Lakh/crore shorthand: a stat tile showing ₹1,04,320.50 wraps, and nobody
+// reads the paise off a dashboard anyway.
+const compact = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  notation: "compact",
+  maximumFractionDigits: 1,
+})
+
 export const formatCurrency = (value: number) => currency.format(value ?? 0)
+export const formatCurrencyCompact = (value: number) =>
+  compact.format(value ?? 0)
 export const formatMeters = (value: number) => `${decimal.format(value ?? 0)} m`
 export const formatNumber = (value: number) => integer.format(value ?? 0)
 

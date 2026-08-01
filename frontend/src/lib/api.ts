@@ -90,7 +90,53 @@ function query(params: Record<string, unknown>): string {
   return qs ? `?${qs}` : ""
 }
 
+/**
+ * Fetch a file and save it.
+ *
+ * A plain <a download> cannot carry the bearer token, and the endpoint is
+ * authenticated, so the bytes are fetched here and handed to a temporary
+ * object URL. The filename comes from Content-Disposition when the server
+ * sends one, so the API stays the single source of truth for naming.
+ */
+async function download(
+  path: string,
+  params: Record<string, unknown>,
+  fallbackName: string,
+): Promise<void> {
+  const headers = await authHeader()
+  const response = await fetch(`${BASE_URL}/api${path}${query(params)}`, {
+    headers,
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    let payload: unknown = null
+    try {
+      payload = text ? JSON.parse(text) : null
+    } catch {
+      payload = null
+    }
+    throw new ApiError(response.status, extractDetail(payload, response))
+  }
+
+  const disposition = response.headers.get("Content-Disposition") ?? ""
+  const match = /filename="?([^";]+)"?/i.exec(disposition)
+  const blob = await response.blob()
+
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = match?.[1] ?? fallbackName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // Revoked on the next tick: revoking synchronously can cancel the download
+  // in WebKit before it has read the blob.
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export const api = {
+  download,
   get: <T>(path: string, params: Record<string, unknown> = {}) =>
     request<T>(`${path}${query(params)}`),
   post: <T>(path: string, body: unknown) =>

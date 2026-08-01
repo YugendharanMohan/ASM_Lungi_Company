@@ -1,21 +1,16 @@
 import { useState } from "react"
-import { CheckCircle2, Loader2, MailCheck, RefreshCw } from "lucide-react"
+import { CheckCircle2, MailCheck, RefreshCw } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { useAuth } from "@/contexts/AuthContext"
+import { Button } from "@/ui/Button"
+import { AuthCanvas } from "@/ui/AuthCanvas"
+import { ErrorNote } from "@/ui/Feedback"
 
 /**
  * Shown when credentials are valid but the address is unverified.
  *
- * This is a courtesy screen, not the control: the backend rejects unverified
- * tokens regardless of what the client renders.
+ * A courtesy screen, not the control: the backend rejects unverified tokens
+ * regardless of what the client renders.
  */
 export function VerifyEmail() {
   const { firebaseUser, resendVerification, refreshVerification, logout } =
@@ -55,70 +50,49 @@ export function VerifyEmail() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <MailCheck className="size-6" />
-          </div>
-          <CardTitle>Verify your email</CardTitle>
-          <CardDescription>
-            We sent a verification link to{" "}
-            <span className="font-medium text-foreground">
-              {firebaseUser?.email ?? "your email address"}
-            </span>
-            . Open it, then come back and choose "I've verified".
-          </CardDescription>
-        </CardHeader>
+    <AuthCanvas
+      title="Verify your email"
+      subtitle={`We sent a link to ${firebaseUser?.email ?? "your email address"}`}
+      icon={<MailCheck className="size-6" />}
+    >
+      {message && (
+        <p className="flex items-start gap-2 rounded-[14px] border border-[var(--border-subtle)] bg-[var(--success-soft)] px-4 py-3 text-[13.5px] text-[var(--success)]">
+          <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+          {message}
+        </p>
+      )}
+      {error && <ErrorNote message={error} />}
 
-        <CardContent className="space-y-3">
-          {message && (
-            <p className="flex items-start gap-2 rounded-md bg-success/10 p-3 text-sm text-success">
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
-              {message}
-            </p>
-          )}
-          {error && (
-            <p
-              role="alert"
-              className="rounded-md bg-destructive/10 p-3 text-sm text-destructive"
-            >
-              {error}
-            </p>
-          )}
+      <p className="text-center text-[13.5px] leading-relaxed text-[var(--text-secondary)]">
+        Open the link, then come back and continue. Verification is required —
+        it cannot be skipped.
+      </p>
 
-          <Button
-            className="w-full"
-            onClick={() => void handleCheck()}
-            disabled={busy !== ""}
-          >
-            {busy === "check" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RefreshCw className="size-4" />
-            )}
-            I&apos;ve verified — continue
-          </Button>
+      <Button
+        size="lg"
+        fullWidth
+        loading={busy === "check"}
+        disabled={busy !== ""}
+        onClick={() => void handleCheck()}
+        icon={<RefreshCw className="size-4" />}
+      >
+        I&apos;ve verified — continue
+      </Button>
 
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => void handleResend()}
-            disabled={busy !== ""}
-          >
-            {busy === "resend" && <Loader2 className="size-4 animate-spin" />}
-            Resend verification email
-          </Button>
+      <Button
+        variant="secondary"
+        size="lg"
+        fullWidth
+        loading={busy === "resend"}
+        disabled={busy !== ""}
+        onClick={() => void handleResend()}
+      >
+        Resend verification email
+      </Button>
 
-          <Button
-            variant="ghost"
-            className="w-full"
-            onClick={() => void logout()}
-          >
-            Sign in with a different account
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
+      <Button variant="ghost" fullWidth onClick={() => void logout()}>
+        Sign in with a different account
+      </Button>
+    </AuthCanvas>
   )
 }

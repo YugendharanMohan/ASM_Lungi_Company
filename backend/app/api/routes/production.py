@@ -6,8 +6,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
+from app.core.labels import loom_label
 from app.db.session import get_db
-from app.models import Loom, ProductionEntry, Shed, Shift, Worker
+from app.models import Loom, PickType, ProductionEntry, Shed, Shift, Worker
 from app.schemas.operations import (
     ProductionCreate,
     ProductionOut,
@@ -36,6 +37,7 @@ def _to_out(
         id=entry.id,
         entry_date=entry.entry_date,
         shift=entry.shift,
+        pick_type=entry.pick_type,
         worker_id=entry.worker_id,
         loom_id=entry.loom_id,
         meters=float(entry.meters or 0),
@@ -45,6 +47,7 @@ def _to_out(
         worker_name=worker_name,
         loom_number=loom_number,
         shed_name=shed_name,
+        loom_label=loom_label(shed_name, loom_number),
     )
 
 
@@ -86,6 +89,7 @@ def list_production(
     loom_id: int | None = Query(default=None),
     shed_id: int | None = Query(default=None),
     shift: Shift | None = Query(default=None),
+    pick_type: PickType | None = Query(default=None),
     limit: int = Query(default=500, ge=1, le=2000),
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
@@ -103,6 +107,8 @@ def list_production(
         stmt = stmt.where(Loom.shed_id == shed_id)
     if shift is not None:
         stmt = stmt.where(ProductionEntry.shift == shift)
+    if pick_type is not None:
+        stmt = stmt.where(ProductionEntry.pick_type == pick_type)
 
     stmt = stmt.order_by(
         ProductionEntry.entry_date.desc(), ProductionEntry.id.desc()
@@ -133,6 +139,7 @@ def create_production(
     entry = ProductionEntry(
         entry_date=payload.entry_date,
         shift=payload.shift,
+        pick_type=payload.pick_type,
         worker_id=payload.worker_id,
         loom_id=payload.loom_id,
         meters=_round2(payload.meters),

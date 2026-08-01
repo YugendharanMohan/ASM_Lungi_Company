@@ -1,19 +1,19 @@
 import { lazy, Suspense } from "react"
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom"
 import { Loader2 } from "lucide-react"
+import { Toaster } from "sonner"
 
-import { AppLayout } from "@/components/AppLayout"
-import { Toaster } from "@/components/ui/sonner"
+import { AppShell } from "@/components/AppShell"
 import { AuthProvider, useAuth } from "@/contexts/AuthContext"
 import { AccessDenied } from "@/pages/AccessDenied"
 import { Login } from "@/pages/Login"
 import { VerifyEmail } from "@/pages/VerifyEmail"
 
 // Feature screens are split out of the entry bundle. The charting library
-// alone is a few hundred kB, and none of it is needed to render the login
-// screen — which is the only thing a signed-out visitor ever sees.
-const Dashboard = lazy(() =>
-  import("@/pages/Dashboard").then((m) => ({ default: m.Dashboard })),
+// alone is a few hundred kB and none of it is needed to render the login
+// screen — the only thing a signed-out visitor ever sees.
+const Overview = lazy(() =>
+  import("@/pages/Overview").then((m) => ({ default: m.Overview })),
 )
 const DispatchPage = lazy(() =>
   import("@/pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
@@ -37,18 +37,16 @@ const Workers = lazy(() =>
   import("@/pages/Workers").then((m) => ({ default: m.Workers })),
 )
 
-function FullPageSpinner() {
+function Spinner({ full = false }: { full?: boolean }) {
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <Loader2 className="size-6 animate-spin text-muted-foreground" />
-    </div>
-  )
-}
-
-function Loading() {
-  return (
-    <div className="flex items-center justify-center py-16">
-      <Loader2 className="size-5 animate-spin text-muted-foreground" />
+    <div
+      className={
+        full
+          ? "flex min-h-dvh items-center justify-center bg-[var(--bg)]"
+          : "flex items-center justify-center py-24"
+      }
+    >
+      <Loader2 className="size-5 animate-spin text-[var(--text-tertiary)]" />
     </div>
   )
 }
@@ -61,25 +59,23 @@ function Loading() {
 function AuthGate() {
   const { status, isAdmin } = useAuth()
 
-  if (status === "loading") return <FullPageSpinner />
+  if (status === "loading") return <Spinner full />
   if (status === "signed-out") return <Login />
   if (status === "unverified") return <VerifyEmail />
   if (status === "denied") return <AccessDenied />
 
   return (
     <Routes>
-      {/* Suspense sits inside the layout so the sidebar stays put while a
-          lazily-loaded screen arrives, instead of the page blanking. */}
       <Route
         element={
-          <AppLayout>
-            <Suspense fallback={<Loading />}>
+          <AppShell>
+            <Suspense fallback={<Spinner />}>
               <Outlet />
             </Suspense>
-          </AppLayout>
+          </AppShell>
         }
       >
-        <Route index element={<Dashboard />} />
+        <Route index element={<Overview />} />
         <Route path="production" element={<Production />} />
         <Route path="workers" element={<Workers />} />
         <Route path="sheds" element={<Sheds />} />
@@ -101,7 +97,20 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <AuthGate />
-        <Toaster richColors position="top-right" />
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: "var(--glass)",
+              backdropFilter: "saturate(180%) blur(20px)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: "14px",
+              color: "var(--text)",
+              boxShadow: "var(--shadow-md)",
+              fontSize: "13.5px",
+            },
+          }}
+        />
       </BrowserRouter>
     </AuthProvider>
   )

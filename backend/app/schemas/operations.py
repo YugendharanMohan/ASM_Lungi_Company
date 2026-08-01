@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.production import Shift
+from app.models.production import PickType, Shift
 
 
 # --------------------------------------------------------------------------
@@ -11,6 +11,7 @@ from app.models.production import Shift
 class ProductionBase(BaseModel):
     entry_date: date
     shift: Shift = Shift.DAY
+    pick_type: PickType = PickType.P88X96
     worker_id: int
     loom_id: int
     meters: float = Field(ge=0)
@@ -24,6 +25,7 @@ class ProductionCreate(ProductionBase):
 class ProductionUpdate(BaseModel):
     entry_date: date | None = None
     shift: Shift | None = None
+    pick_type: PickType | None = None
     worker_id: int | None = None
     loom_id: int | None = None
     meters: float | None = Field(default=None, ge=0)
@@ -39,6 +41,7 @@ class ProductionOut(ProductionBase):
     worker_name: str = ""
     loom_number: str = ""
     shed_name: str = ""
+    loom_label: str = ""
 
 
 # --------------------------------------------------------------------------
@@ -89,6 +92,51 @@ class SalaryReport(BaseModel):
     rows: list[SalaryRow]
     total_meters: float
     total_amount: float
+
+
+# --------------------------------------------------------------------------
+# Salary receipt
+# --------------------------------------------------------------------------
+class RateGroup(BaseModel):
+    """Meters that share one piece rate, totalled.
+
+    Wages are checked rate by rate — "220 metres at 9, 340 at 10" — so the
+    receipt has to show each rate band on its own line rather than a single
+    blended figure nobody can verify.
+    """
+
+    rate: float
+    pick_types: list[str]
+    meters: float
+    amount: float
+
+
+class ReceiptCell(BaseModel):
+    loom_label: str
+    meters: float | None = None
+
+
+class ReceiptRow(BaseModel):
+    entry_date: date
+    cells: list[ReceiptCell]
+    total: float
+
+
+class SalaryReceipt(BaseModel):
+    worker_id: int
+    worker_name: str
+    phone: str = ""
+    start_date: date
+    end_date: date
+
+    loom_labels: list[str]
+    rows: list[ReceiptRow]
+    loom_totals: list[ReceiptCell]
+
+    rate_groups: list[RateGroup]
+    total_meters: float
+    total_amount: float
+    average_rate: float
 
 
 # --------------------------------------------------------------------------

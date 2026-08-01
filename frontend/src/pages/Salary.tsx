@@ -1,218 +1,315 @@
 import { useState } from "react"
-import { Download } from "lucide-react"
+import { Download, FileText, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 
-import {
-  EmptyState,
-  ErrorNote,
-  Loading,
-  PageHeader,
-  TableScroller,
-} from "@/components/common"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableFooter,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useApi } from "@/hooks/useApi"
-import { api } from "@/lib/api"
+import { api, ApiError } from "@/lib/api"
 import {
   formatCurrency,
   formatDate,
   formatMeters,
+  toISODate,
   todayISO,
 } from "@/lib/format"
-import type { SalaryReport } from "@/lib/types"
+import type { SalaryReport, SalaryRow } from "@/lib/types"
+import { Button } from "@/ui/Button"
+import { Card } from "@/ui/Card"
+import { DataTable, type Column } from "@/ui/DataTable"
+import { DateField } from "@/ui/DateField"
+import { ErrorNote } from "@/ui/Feedback"
+import { PageHeader } from "@/ui/PageHeader"
+import { SegmentedControl } from "@/ui/SegmentedControl"
 
-type Period = "daily" | "weekly" | "monthly"
+type Preset = "week" | "month" | "custom"
 
-/** Escapes a CSV field: quotes wrap it, and inner quotes are doubled. */
-function csvField(value: string | number): string {
-  const text = String(value ?? "")
-  return `"${text.replace(/"/g, '""')}"`
+function presetRange(preset: Exclude<Preset, "custom">): [string, string] {
+  const today = new Date()
+  if (preset === "week") {
+    // Monday-start week, matching the backend's ISO bounds.
+    const monday = new Date(today)
+    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+    const sunday = new Date(monday)
+    sunday.setDate(monday.getDate() + 6)
+    return [toISODate(monday), toISODate(sunday)]
+  }
+  const first = new Date(today.getFullYear(), today.getMonth(), 1)
+  const last = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+  return [toISODate(first), toISODate(last)]
 }
 
 export function Salary() {
-  const [period, setPeriod] = useState<Period>("weekly")
-  const [reference, setReference] = useState(todayISO())
+  const [preset, setPreset] = useState<Preset>("week")
+  const initial = presetRange("week")
+  const [startDate, setStartDate] = useState(initial[0])
+  const [endDate, setEndDate] = useState(initial[1])
+  const [downloading, setDownloading] = useState<number | null>(null)
+
+  const invalidRange = Boolean(startDate && endDate && startDate > endDate)
 
   const report = useApi<SalaryReport>(
     () =>
       api.get<SalaryReport>("/salary", {
-        period,
-        reference_date: reference,
+        start_date: startDate,
+        end_date: endDate,
       }),
-    [period, reference],
+    [startDate, endDate],
   )
 
-  function downloadCsv() {
-    if (!report.data) return
-    const { rows, start_date, end_date } = report.data
-    const lines = [
-      ["Worker", "Phone", "Shed", "Entries", "Meters", "Amount"]
-        .map(csvField)
-        .join(","),
-      ...rows.map((row) =>
-        [
-          row.worker_name,
-          row.phone,
-          row.shed_name,
-          row.entry_count,
-          row.total_meters.toFixed(2),
-          row.total_amount.toFixed(2),
-        ]
-          .map(csvField)
-          .join(","),
-      ),
-    ]
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/csv;charset=utf-8",
-    })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `salary-${period}-${start_date}-to-${end_date}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
+  function applyPreset(next: Preset) {
+    setPreset(next)
+    if (next === "custom") return
+    const [from, to] = presetRange(next)
+    setStartDate(from)
+    setEndDate(to)
   }
+
+  async function downloadReceipt(row: SalaryRow) {
+    setDownloading(row.worker_id)
+    try {
+      await api.download(
+        `/salary/receipt/${row.worker_id}/pdf`,
+        { start_date: startDate, end_date: endDate },
+        `salary-${row.worker_name}.pdf`,
+      )
+      toast.success(`Receipt downloaded for ${row.worker_name}`)
+    } catch (caught) {
+      toast.error(
+        caught instanceof ApiError
+          ? caught.message
+          : "Could not generate the receipt.",
+      )
+    } finally {
+      setDownloading(null)
+    }
+  }
+
+  const columns: Column<SalaryRow>[] = [
+    {
+      key: "worker",
+      header: "Worker",
+      sortValue: (row) => row.worker_name.toLowerCase(),
+      render: (row) => <span className="font-medium">{row.worker_name}</span>,
+    },
+    {
+      key: "shed",
+      header: "Shed",
+      sortValue: (row) => row.shed_name,
+      render: (row) => (
+        <span className="text-[var(--text-secondary)]">
+          {row.shed_name || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "entries",
+      header: "Entries",
+      align: "right",
+      sortValue: (row) => row.entry_count,
+      render: (row) => <span className="tabular">{row.entry_count}</span>,
+    },
+    {
+      key: "meters",
+      header: "Metres",
+      align: "right",
+      sortValue: (row) => row.total_meters,
+      render: (row) => (
+        <span className="tabular">{row.total_meters.toFixed(2)}</span>
+      ),
+    },
+    {
+      key: "salary",
+      header: "Salary",
+      align: "right",
+      sortValue: (row) => row.total_amount,
+      render: (row) => (
+        <span className="tabular font-semibold">
+          {formatCurrency(row.total_amount)}
+        </span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "Receipt",
+      align: "right",
+      render: (row) => (
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => void downloadReceipt(row)}
+          disabled={downloading !== null}
+          icon={
+            downloading === row.worker_id ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <FileText className="size-3.5" />
+            )
+          }
+        >
+          PDF
+        </Button>
+      ),
+    },
+  ]
 
   return (
     <div>
       <PageHeader
         title="Salary"
-        description="Meters × rate per meter, totalled per worker."
+        description="Metres × rate per metre, totalled per worker. Download a worker's receipt as a PDF."
         actions={
           <Button
-            variant="outline"
-            onClick={downloadCsv}
+            variant="secondary"
+            icon={<Download className="size-4" />}
             disabled={!report.data?.rows.length}
+            onClick={() => exportCsv(report.data)}
           >
-            <Download className="size-4" />
             Export CSV
           </Button>
         }
       />
 
-      <Card className="mb-4">
-        <CardContent className="flex flex-wrap items-end gap-4 pt-6">
-          <div className="space-y-1.5">
-            <Label>Period</Label>
-            <Tabs
-              value={period}
-              onValueChange={(value) => setPeriod(value as Period)}
-            >
-              <TabsList>
-                <TabsTrigger value="daily">Daily</TabsTrigger>
-                <TabsTrigger value="weekly">Weekly</TabsTrigger>
-                <TabsTrigger value="monthly">Monthly</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="reference">Any date in the period</Label>
-            <Input
-              id="reference"
-              type="date"
-              className="w-48"
-              value={reference}
-              onChange={(event) => setReference(event.target.value)}
+      <Card className="mb-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="mb-2 pl-0.5 text-[12px] font-medium text-[var(--text-secondary)]">
+              Period
+            </p>
+            <SegmentedControl
+              aria-label="Period preset"
+              value={preset}
+              onChange={applyPreset}
+              segments={[
+                { value: "week", label: "This week" },
+                { value: "month", label: "This month" },
+                { value: "custom", label: "Custom" },
+              ]}
             />
           </div>
-        </CardContent>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:w-[420px]">
+            <DateField
+              label="From"
+              value={startDate}
+              max={endDate || todayISO()}
+              onChange={(value) => {
+                setStartDate(value)
+                setPreset("custom")
+              }}
+            />
+            <DateField
+              label="To"
+              value={endDate}
+              min={startDate}
+              error={invalidRange ? "Must be after the start date." : undefined}
+              onChange={(value) => {
+                setEndDate(value)
+                setPreset("custom")
+              }}
+            />
+          </div>
+        </div>
       </Card>
 
-      {report.loading ? (
-        <Loading label="Calculating wages…" />
-      ) : report.error ? (
-        <ErrorNote message={report.error} onRetry={report.reload} />
-      ) : report.data ? (
-        <Card>
-          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
-            <CardTitle className="text-base">
-              {formatDate(report.data.start_date)}
-              {report.data.start_date !== report.data.end_date &&
-                ` – ${formatDate(report.data.end_date)}`}
-            </CardTitle>
-            <div className="tabular flex gap-4 text-sm">
-              <span className="text-muted-foreground">
-                {formatMeters(report.data.total_meters)}
-              </span>
-              <span className="font-semibold">
-                {formatCurrency(report.data.total_amount)}
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {report.data.rows.length === 0 ? (
-              <EmptyState
-                title="No production in this period"
-                description="Record entries under Daily Meter Entry, then come back."
-              />
-            ) : (
-              <TableScroller>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Worker</TableHead>
-                      <TableHead>Shed</TableHead>
-                      <TableHead>Phone</TableHead>
-                      <TableHead className="text-right">Entries</TableHead>
-                      <TableHead className="text-right">Meters</TableHead>
-                      <TableHead className="text-right">Salary</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {report.data.rows.map((row) => (
-                      <TableRow key={row.worker_id}>
-                        <TableCell className="font-medium">
-                          {row.worker_name}
-                        </TableCell>
-                        <TableCell>{row.shed_name || "—"}</TableCell>
-                        <TableCell className="tabular text-muted-foreground">
-                          {row.phone || "—"}
-                        </TableCell>
-                        <TableCell className="tabular text-right">
-                          {row.entry_count}
-                        </TableCell>
-                        <TableCell className="tabular text-right">
-                          {row.total_meters.toFixed(2)}
-                        </TableCell>
-                        <TableCell className="tabular text-right font-medium">
-                          {formatCurrency(row.total_amount)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                  <TableFooter>
-                    <TableRow>
-                      <TableCell colSpan={4}>Total</TableCell>
-                      <TableCell className="tabular text-right">
-                        {report.data.total_meters.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="tabular text-right">
-                        {formatCurrency(report.data.total_amount)}
-                      </TableCell>
-                    </TableRow>
-                  </TableFooter>
-                </Table>
-              </TableScroller>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
+      {report.data && !report.loading && !report.error && (
+        <div className="mb-5 grid gap-3 sm:grid-cols-3">
+          <Summary
+            label="Period"
+            value={`${formatDate(report.data.start_date)} — ${formatDate(
+              report.data.end_date,
+            )}`}
+          />
+          <Summary
+            label="Total metres"
+            value={formatMeters(report.data.total_meters)}
+          />
+          <Summary
+            label="Total payable"
+            value={formatCurrency(report.data.total_amount)}
+            emphasis
+          />
+        </div>
+      )}
+
+      {invalidRange ? (
+        <ErrorNote message="Choose an end date on or after the start date." />
+      ) : (
+        <DataTable
+          data={report.data?.rows ?? null}
+          columns={columns}
+          getRowId={(row) => row.worker_id}
+          loading={report.loading}
+          error={report.error}
+          onRetry={report.reload}
+          searchable={(row, query) =>
+            row.worker_name.toLowerCase().includes(query) ||
+            row.shed_name.toLowerCase().includes(query)
+          }
+          searchPlaceholder="Search worker"
+          pageSize={12}
+          emptyTitle="No production in this period"
+          emptyDescription="Record entries under Daily Entry, then come back."
+        />
+      )}
     </div>
   )
+}
+
+function Summary({
+  label,
+  value,
+  emphasis,
+}: {
+  label: string
+  value: string
+  emphasis?: boolean
+}) {
+  return (
+    <div className="rounded-[16px] border border-[var(--border-subtle)] bg-[var(--surface)] px-4 py-3.5 shadow-[var(--shadow-sm)]">
+      <p className="text-[12px] font-medium text-[var(--text-tertiary)]">
+        {label}
+      </p>
+      <p
+        className={
+          emphasis
+            ? "tabular mt-1 text-[19px] font-semibold tracking-[-0.02em] text-[var(--accent)]"
+            : "tabular mt-1 text-[15px] font-medium"
+        }
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+/** Quotes wrap every field and inner quotes are doubled, per RFC 4180. */
+function csvField(value: string | number): string {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`
+}
+
+function exportCsv(report: SalaryReport | null) {
+  if (!report) return
+  const lines = [
+    ["Worker", "Phone", "Shed", "Entries", "Metres", "Amount"]
+      .map(csvField)
+      .join(","),
+    ...report.rows.map((row) =>
+      [
+        row.worker_name,
+        row.phone,
+        row.shed_name,
+        row.entry_count,
+        row.total_meters.toFixed(2),
+        row.total_amount.toFixed(2),
+      ]
+        .map(csvField)
+        .join(","),
+    ),
+  ]
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = `salary-${report.start_date}-to-${report.end_date}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
 }

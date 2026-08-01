@@ -1,54 +1,26 @@
-import { useEffect, useState, type FormEvent } from "react"
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import { useState, type FormEvent } from "react"
+import { IndianRupee, Pencil, Phone, Plus, Trash2, User } from "lucide-react"
 import { toast } from "sonner"
 
-import {
-  EmptyState,
-  ErrorNote,
-  Loading,
-  PageHeader,
-  TableScroller,
-} from "@/components/common"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { useApi } from "@/hooks/useApi"
 import { api, ApiError } from "@/lib/api"
 import { formatCurrency } from "@/lib/format"
-import type { Loom, Shed, Worker } from "@/lib/types"
+import type { Shed, Worker } from "@/lib/types"
+import { Button } from "@/ui/Button"
+import { DataTable, type Column } from "@/ui/DataTable"
+import { Badge, ErrorNote } from "@/ui/Feedback"
+import { Field } from "@/ui/Field"
+import { Modal } from "@/ui/Modal"
+import { PageHeader } from "@/ui/PageHeader"
+import { SelectField } from "@/ui/SelectField"
+import { Switch } from "@/ui/Switch"
 
-const NONE = "__none__"
+const NO_SHED = "__none__"
 
 interface FormState {
   name: string
   phone: string
   shed_id: string
-  loom_id: string
   rate_per_meter: string
   is_active: boolean
 }
@@ -56,8 +28,7 @@ interface FormState {
 const EMPTY: FormState = {
   name: "",
   phone: "",
-  shed_id: NONE,
-  loom_id: NONE,
+  shed_id: NO_SHED,
   rate_per_meter: "",
   is_active: true,
 }
@@ -65,32 +36,19 @@ const EMPTY: FormState = {
 export function Workers() {
   const workers = useApi<Worker[]>(() => api.get<Worker[]>("/workers"))
   const sheds = useApi<Shed[]>(() => api.get<Shed[]>("/sheds"))
-  const looms = useApi<Loom[]>(() => api.get<Loom[]>("/looms"))
 
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Worker | null>(null)
   const [form, setForm] = useState<FormState>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
-
-  // Only looms in the chosen shed — the backend rejects a mismatch, so
-  // offering the others would just produce an error the user can't interpret.
-  const availableLooms = (looms.data ?? []).filter(
-    (loom) => form.shed_id === NONE || String(loom.shed_id) === form.shed_id,
-  )
-
-  useEffect(() => {
-    if (form.loom_id === NONE) return
-    const stillValid = availableLooms.some(
-      (loom) => String(loom.id) === form.loom_id,
-    )
-    if (!stillValid) setForm((prev) => ({ ...prev, loom_id: NONE }))
-  }, [form.shed_id, form.loom_id, availableLooms])
+  const [nameError, setNameError] = useState("")
 
   function openCreate() {
     setEditing(null)
     setForm(EMPTY)
     setError("")
+    setNameError("")
     setOpen(true)
   }
 
@@ -99,25 +57,28 @@ export function Workers() {
     setForm({
       name: worker.name,
       phone: worker.phone,
-      shed_id: worker.shed_id ? String(worker.shed_id) : NONE,
-      loom_id: worker.loom_id ? String(worker.loom_id) : NONE,
+      shed_id: worker.shed_id ? String(worker.shed_id) : NO_SHED,
       rate_per_meter: String(worker.rate_per_meter ?? ""),
       is_active: worker.is_active,
     })
     setError("")
+    setNameError("")
     setOpen(true)
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    if (!form.name.trim()) {
+      setNameError("A worker needs a name.")
+      return
+    }
     setError("")
     setSaving(true)
 
     const payload = {
       name: form.name.trim(),
       phone: form.phone.trim(),
-      shed_id: form.shed_id === NONE ? null : Number(form.shed_id),
-      loom_id: form.loom_id === NONE ? null : Number(form.loom_id),
+      shed_id: form.shed_id === NO_SHED ? null : Number(form.shed_id),
       rate_per_meter: Number.parseFloat(form.rate_per_meter) || 0,
       is_active: form.is_active,
     }
@@ -155,222 +116,184 @@ export function Workers() {
     }
   }
 
+  const columns: Column<Worker>[] = [
+    {
+      key: "name",
+      header: "Name",
+      sortValue: (row) => row.name.toLowerCase(),
+      render: (row) => <span className="font-medium">{row.name}</span>,
+    },
+    {
+      key: "phone",
+      header: "Phone",
+      sortValue: (row) => row.phone,
+      render: (row) => (
+        <span className="tabular text-[var(--text-secondary)]">
+          {row.phone || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "shed",
+      header: "Shed",
+      sortValue: (row) => row.shed_name,
+      render: (row) => (
+        <span className="text-[var(--text-secondary)]">
+          {row.shed_name || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "rate",
+      header: "Rate / m",
+      align: "right",
+      sortValue: (row) => row.rate_per_meter,
+      render: (row) => (
+        <span className="tabular">{formatCurrency(row.rate_per_meter)}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      sortValue: (row) => (row.is_active ? 0 : 1),
+      render: (row) => (
+        <Badge tone={row.is_active ? "success" : "neutral"}>
+          {row.is_active ? "Active" : "Inactive"}
+        </Badge>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (row) => (
+        <div className="flex justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={() => openEdit(row)}
+            aria-label={`Edit ${row.name}`}
+            className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--text)]"
+          >
+            <Pencil className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDelete(row)}
+            aria-label={`Delete ${row.name}`}
+            className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div>
       <PageHeader
         title="Workers"
-        description="Names, rates and loom assignments."
+        description="Names, phone numbers and piece rates."
         actions={
-          <Button onClick={openCreate}>
-            <Plus className="size-4" />
+          <Button onClick={openCreate} icon={<Plus className="size-4" />}>
             Add worker
           </Button>
         }
       />
 
-      <Card>
-        <CardContent className="pt-6">
-          {workers.loading ? (
-            <Loading />
-          ) : workers.error ? (
-            <ErrorNote message={workers.error} onRetry={workers.reload} />
-          ) : workers.data?.length === 0 ? (
-            <EmptyState
-              title="No workers yet"
-              description="Add your first worker to start recording production."
+      <DataTable
+        data={workers.data}
+        columns={columns}
+        getRowId={(row) => row.id}
+        loading={workers.loading}
+        error={workers.error}
+        onRetry={workers.reload}
+        searchable={(row, query) =>
+          row.name.toLowerCase().includes(query) ||
+          row.phone.toLowerCase().includes(query) ||
+          row.shed_name.toLowerCase().includes(query)
+        }
+        searchPlaceholder="Search name, phone or shed"
+        pageSize={12}
+        emptyTitle="No workers yet"
+        emptyDescription="Add your first worker to start recording production."
+      />
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editing ? `Edit ${editing.name}` : "Add worker"}
+        description="The rate here pre-fills the daily entry form."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="worker-form" loading={saving}>
+              {editing ? "Save changes" : "Add worker"}
+            </Button>
+          </>
+        }
+      >
+        <form id="worker-form" onSubmit={handleSubmit} className="space-y-4 pb-2">
+          <Field
+            label="Worker name"
+            icon={<User className="size-[18px]" />}
+            value={form.name}
+            error={nameError}
+            onChange={(event) => {
+              setForm({ ...form, name: event.target.value })
+              setNameError("")
+            }}
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Phone"
+              inputMode="tel"
+              icon={<Phone className="size-[18px]" />}
+              value={form.phone}
+              onChange={(event) =>
+                setForm({ ...form, phone: event.target.value })
+              }
             />
-          ) : (
-            <TableScroller>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>Shed</TableHead>
-                    <TableHead>Loom</TableHead>
-                    <TableHead className="text-right">Rate / m</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-24" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(workers.data ?? []).map((worker) => (
-                    <TableRow key={worker.id}>
-                      <TableCell className="font-medium">
-                        {worker.name}
-                      </TableCell>
-                      <TableCell className="tabular text-muted-foreground">
-                        {worker.phone || "—"}
-                      </TableCell>
-                      <TableCell>{worker.shed_name || "—"}</TableCell>
-                      <TableCell>{worker.loom_number || "—"}</TableCell>
-                      <TableCell className="tabular text-right">
-                        {formatCurrency(worker.rate_per_meter)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={worker.is_active ? "default" : "secondary"}
-                        >
-                          {worker.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Edit ${worker.name}`}
-                            onClick={() => openEdit(worker)}
-                          >
-                            <Pencil className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Delete ${worker.name}`}
-                            onClick={() => void handleDelete(worker)}
-                          >
-                            <Trash2 className="size-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableScroller>
-          )}
-        </CardContent>
-      </Card>
+            <Field
+              label="Rate per metre"
+              type="number"
+              step="0.01"
+              min="0"
+              icon={<IndianRupee className="size-[18px]" />}
+              value={form.rate_per_meter}
+              onChange={(event) =>
+                setForm({ ...form, rate_per_meter: event.target.value })
+              }
+            />
+          </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {editing ? `Edit ${editing.name}` : "Add worker"}
-            </DialogTitle>
-            <DialogDescription>
-              The rate here pre-fills the daily entry form.
-            </DialogDescription>
-          </DialogHeader>
+          <SelectField
+            label="Shed"
+            value={form.shed_id}
+            onChange={(value) => setForm({ ...form, shed_id: value })}
+            options={[
+              { value: NO_SHED, label: "No shed" },
+              ...(sheds.data ?? []).map((shed) => ({
+                value: String(shed.id),
+                label: `Shed ${shed.name}`,
+              })),
+            ]}
+            hint="Used for grouping reports. Workers can be booked to any loom."
+          />
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="worker-name">Worker name</Label>
-              <Input
-                id="worker-name"
-                required
-                value={form.name}
-                onChange={(event) =>
-                  setForm({ ...form, name: event.target.value })
-                }
-              />
-            </div>
+          <Switch
+            label="Active"
+            description="Shows in the daily entry worker list"
+            checked={form.is_active}
+            onChange={(checked) => setForm({ ...form, is_active: checked })}
+          />
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="worker-phone">Phone</Label>
-                <Input
-                  id="worker-phone"
-                  inputMode="tel"
-                  value={form.phone}
-                  onChange={(event) =>
-                    setForm({ ...form, phone: event.target.value })
-                  }
-                  placeholder="9876543210"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="worker-rate">Rate per meter (₹)</Label>
-                <Input
-                  id="worker-rate"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={form.rate_per_meter}
-                  onChange={(event) =>
-                    setForm({ ...form, rate_per_meter: event.target.value })
-                  }
-                  placeholder="12.50"
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="worker-shed">Assigned shed</Label>
-                <Select
-                  value={form.shed_id}
-                  onValueChange={(value) =>
-                    setForm({ ...form, shed_id: value })
-                  }
-                >
-                  <SelectTrigger id="worker-shed" className="w-full">
-                    <SelectValue placeholder="No shed" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>No shed</SelectItem>
-                    {(sheds.data ?? []).map((shed) => (
-                      <SelectItem key={shed.id} value={String(shed.id)}>
-                        Shed {shed.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="worker-loom">Assigned loom</Label>
-                <Select
-                  value={form.loom_id}
-                  onValueChange={(value) =>
-                    setForm({ ...form, loom_id: value })
-                  }
-                >
-                  <SelectTrigger id="worker-loom" className="w-full">
-                    <SelectValue placeholder="No loom" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>No loom</SelectItem>
-                    {availableLooms.map((loom) => (
-                      <SelectItem key={loom.id} value={String(loom.id)}>
-                        Shed {loom.shed_name} · Loom {loom.loom_number}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="size-4 accent-[var(--primary)]"
-                checked={form.is_active}
-                onChange={(event) =>
-                  setForm({ ...form, is_active: event.target.checked })
-                }
-              />
-              Active — appears in the daily entry worker list
-            </label>
-
-            {error && <ErrorNote message={error} />}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving && <Loader2 className="size-4 animate-spin" />}
-                {editing ? "Save changes" : "Add worker"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          {error && <ErrorNote message={error} />}
+        </form>
+      </Modal>
     </div>
   )
 }

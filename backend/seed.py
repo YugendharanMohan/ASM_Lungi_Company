@@ -17,6 +17,7 @@ from app.db.session import Base, SessionLocal, engine
 from app.models import (
     Dispatch,
     Loom,
+    PickType,
     ProductionEntry,
     Shed,
     Shift,
@@ -24,6 +25,14 @@ from app.models import (
     UserRole,
     Worker,
 )
+
+# Each pick carries its own piece rate. Real numbers are typed in per entry;
+# these are only here so the demo data has believable rate bands to group by.
+PICK_RATES = {
+    PickType.P88X96: 9.50,
+    PickType.P88X92: 9.00,
+    PickType.P88X80: 8.50,
+}
 
 WORKER_NAMES = [
     "Murugan S", "Kavitha R", "Selvam P", "Lakshmi M", "Ramesh K",
@@ -94,13 +103,11 @@ def main() -> None:
         for i, name in enumerate(WORKER_NAMES):
             worker = db.scalar(select(Worker).where(Worker.name == name))
             if worker is None:
-                loom = looms[i % len(looms)]
                 worker = Worker(
                     name=name,
                     phone=f"9{rng.randint(100000000, 999999999)}",
-                    shed_id=loom.shed_id,
-                    loom_id=loom.id,
-                    rate_per_meter=round(rng.uniform(11.0, 14.5), 2),
+                    shed_id=looms[i % len(looms)].shed_id,
+                    rate_per_meter=PICK_RATES[PickType.P88X96],
                     is_active=i < len(WORKER_NAMES) - 1,
                 )
                 db.add(worker)
@@ -116,9 +123,15 @@ def main() -> None:
             day = today - timedelta(days=offset)
             if day.weekday() == 6:  # mill is closed on Sundays
                 continue
-            for worker in workers:
-                if not worker.is_active or worker.loom_id is None:
+            for index, worker in enumerate(workers):
+                if not worker.is_active:
                     continue
+                # Workers are not tied to a loom, but in practice they rotate
+                # around two or three in their own shed rather than the whole
+                # floor — a receipt covering twelve looms is not what a real
+                # week looks like.
+                pool = [looms[(index * 2 + k) % len(looms)] for k in range(3)]
+                loom = pool[day.toordinal() % len(pool)]
                 for shift in (Shift.DAY, Shift.NIGHT):
                     if shift is Shift.NIGHT and rng.random() < 0.55:
                         continue
@@ -127,20 +140,22 @@ def main() -> None:
                             ProductionEntry.entry_date == day,
                             ProductionEntry.shift == shift,
                             ProductionEntry.worker_id == worker.id,
-                            ProductionEntry.loom_id == worker.loom_id,
+                            ProductionEntry.loom_id == loom.id,
                         )
                     )
                     if exists:
                         continue
 
                     meters = round(rng.uniform(35, 95), 2)
-                    rate = float(worker.rate_per_meter)
+                    pick = rng.choice(list(PICK_RATES))
+                    rate = PICK_RATES[pick]
                     db.add(
                         ProductionEntry(
                             entry_date=day,
                             shift=shift,
+                            pick_type=pick,
                             worker_id=worker.id,
-                            loom_id=worker.loom_id,
+                            loom_id=loom.id,
                             meters=meters,
                             rate_per_meter=rate,
                             total_amount=round(meters * rate, 2),

@@ -1,58 +1,22 @@
 import { useState, type FormEvent } from "react"
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import { Cog, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
-import {
-  EmptyState,
-  ErrorNote,
-  Loading,
-  PageHeader,
-  TableScroller,
-} from "@/components/common"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { useApi } from "@/hooks/useApi"
 import { api, ApiError } from "@/lib/api"
 import type { Loom, Shed } from "@/lib/types"
-
-const ALL = "__all__"
+import { Button } from "@/ui/Button"
+import { DataTable, type Column } from "@/ui/DataTable"
+import { Badge, ErrorNote } from "@/ui/Feedback"
+import { Field } from "@/ui/Field"
+import { Modal } from "@/ui/Modal"
+import { PageHeader } from "@/ui/PageHeader"
+import { SelectField } from "@/ui/SelectField"
+import { Switch } from "@/ui/Switch"
 
 export function Looms() {
-  const [shedFilter, setShedFilter] = useState(ALL)
   const sheds = useApi<Shed[]>(() => api.get<Shed[]>("/sheds"))
-  const looms = useApi<Loom[]>(
-    () =>
-      api.get<Loom[]>("/looms", {
-        shed_id: shedFilter === ALL ? undefined : shedFilter,
-      }),
-    [shedFilter],
-  )
+  const looms = useApi<Loom[]>(() => api.get<Loom[]>("/looms"))
 
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Loom | null>(null)
@@ -61,13 +25,17 @@ export function Looms() {
   const [isActive, setIsActive] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [numberError, setNumberError] = useState("")
+  const [shedError, setShedError] = useState("")
 
   function openCreate() {
     setEditing(null)
     setLoomNumber("")
-    setShedId(shedFilter !== ALL ? shedFilter : String(sheds.data?.[0]?.id ?? ""))
+    setShedId(String(sheds.data?.[0]?.id ?? ""))
     setIsActive(true)
     setError("")
+    setNumberError("")
+    setShedError("")
     setOpen(true)
   }
 
@@ -77,18 +45,26 @@ export function Looms() {
     setShedId(String(loom.shed_id))
     setIsActive(loom.is_active)
     setError("")
+    setNumberError("")
+    setShedError("")
     setOpen(true)
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    let invalid = false
     if (!shedId) {
-      setError("Choose a shed for this loom.")
-      return
+      setShedError("Choose a shed.")
+      invalid = true
     }
+    if (!loomNumber.trim()) {
+      setNumberError("Give the loom a number.")
+      invalid = true
+    }
+    if (invalid) return
+
     setError("")
     setSaving(true)
-
     const payload = {
       loom_number: loomNumber.trim(),
       shed_id: Number(shedId),
@@ -98,10 +74,10 @@ export function Looms() {
     try {
       if (editing) {
         await api.patch<Loom>(`/looms/${editing.id}`, payload)
-        toast.success(`Loom ${payload.loom_number} updated`)
+        toast.success("Loom updated")
       } else {
         await api.post<Loom>("/looms", payload)
-        toast.success(`Loom ${payload.loom_number} added`)
+        toast.success("Loom added")
       }
       setOpen(false)
       looms.reload()
@@ -116,13 +92,7 @@ export function Looms() {
   }
 
   async function handleDelete(loom: Loom) {
-    if (
-      !window.confirm(
-        `Delete loom ${loom.loom_number} from shed ${loom.shed_name}?`,
-      )
-    ) {
-      return
-    }
+    if (!window.confirm(`Delete loom ${loom.label}?`)) return
     try {
       await api.delete(`/looms/${loom.id}`)
       toast.success("Loom deleted")
@@ -136,172 +106,149 @@ export function Looms() {
     }
   }
 
+  const columns: Column<Loom>[] = [
+    {
+      key: "label",
+      header: "Loom",
+      sortValue: (row) => `${row.shed_name}-${row.loom_number.padStart(4, "0")}`,
+      render: (row) => <span className="font-medium">{row.label}</span>,
+    },
+    {
+      key: "shed",
+      header: "Shed",
+      sortValue: (row) => row.shed_name,
+      render: (row) => (
+        <span className="text-[var(--text-secondary)]">{row.shed_name}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      sortValue: (row) => (row.is_active ? 0 : 1),
+      render: (row) => (
+        <Badge tone={row.is_active ? "success" : "neutral"}>
+          {row.is_active ? "Running" : "Idle"}
+        </Badge>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (row) => (
+        <div className="flex justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={() => openEdit(row)}
+            aria-label={`Edit loom ${row.label}`}
+            className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--text)]"
+          >
+            <Pencil className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDelete(row)}
+            aria-label={`Delete loom ${row.label}`}
+            className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div>
       <PageHeader
         title="Looms"
-        description="Every loom belongs to one shed. Change the shed to move it."
+        description="Every loom belongs to one shed. Change its shed to move it."
         actions={
-          <>
-            <Select value={shedFilter} onValueChange={setShedFilter}>
-              <SelectTrigger className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>All sheds</SelectItem>
-                {(sheds.data ?? []).map((shed) => (
-                  <SelectItem key={shed.id} value={String(shed.id)}>
-                    Shed {shed.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              onClick={openCreate}
-              disabled={(sheds.data?.length ?? 0) === 0}
-            >
-              <Plus className="size-4" />
-              Add loom
-            </Button>
-          </>
+          <Button
+            onClick={openCreate}
+            icon={<Plus className="size-4" />}
+            disabled={(sheds.data?.length ?? 0) === 0}
+          >
+            Add loom
+          </Button>
         }
       />
 
-      <Card>
-        <CardContent className="pt-6">
-          {looms.loading ? (
-            <Loading />
-          ) : looms.error ? (
-            <ErrorNote message={looms.error} onRetry={looms.reload} />
-          ) : (sheds.data?.length ?? 0) === 0 ? (
-            <EmptyState
-              title="Add a shed first"
-              description="Looms have to belong to a shed, so create one under Sheds."
-            />
-          ) : looms.data?.length === 0 ? (
-            <EmptyState
-              title="No looms here"
-              description="Add a loom to this shed to start assigning workers."
-            />
-          ) : (
-            <TableScroller>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Loom</TableHead>
-                    <TableHead>Shed</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-24" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(looms.data ?? []).map((loom) => (
-                    <TableRow key={loom.id}>
-                      <TableCell className="font-medium">
-                        Loom {loom.loom_number}
-                      </TableCell>
-                      <TableCell>Shed {loom.shed_name}</TableCell>
-                      <TableCell>
-                        <Badge variant={loom.is_active ? "default" : "secondary"}>
-                          {loom.is_active ? "Active" : "Inactive"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Edit loom ${loom.loom_number}`}
-                            onClick={() => openEdit(loom)}
-                          >
-                            <Pencil className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Delete loom ${loom.loom_number}`}
-                            onClick={() => void handleDelete(loom)}
-                          >
-                            <Trash2 className="size-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableScroller>
-          )}
-        </CardContent>
-      </Card>
+      <DataTable
+        data={looms.data}
+        columns={columns}
+        getRowId={(row) => row.id}
+        loading={looms.loading || sheds.loading}
+        error={looms.error}
+        onRetry={looms.reload}
+        searchable={(row, query) =>
+          row.label.toLowerCase().includes(query) ||
+          row.shed_name.toLowerCase().includes(query)
+        }
+        searchPlaceholder="Search loom or shed"
+        pageSize={14}
+        emptyTitle={
+          (sheds.data?.length ?? 0) === 0 ? "Add a shed first" : "No looms yet"
+        }
+        emptyDescription={
+          (sheds.data?.length ?? 0) === 0
+            ? "Looms belong to a shed, so create one under Sheds."
+            : "Add a loom to start booking production against it."
+        }
+      />
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {editing ? `Edit loom ${editing.loom_number}` : "Add loom"}
-            </DialogTitle>
-            <DialogDescription>
-              Loom numbers only need to be unique within their shed.
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="loom-shed">Shed</Label>
-              <Select value={shedId} onValueChange={setShedId}>
-                <SelectTrigger id="loom-shed" className="w-full">
-                  <SelectValue placeholder="Select shed" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(sheds.data ?? []).map((shed) => (
-                    <SelectItem key={shed.id} value={String(shed.id)}>
-                      Shed {shed.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="loom-number">Loom number</Label>
-              <Input
-                id="loom-number"
-                required
-                value={loomNumber}
-                onChange={(event) => setLoomNumber(event.target.value)}
-                placeholder="1"
-              />
-            </div>
-
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="size-4 accent-[var(--primary)]"
-                checked={isActive}
-                onChange={(event) => setIsActive(event.target.checked)}
-              />
-              Active — currently running
-            </label>
-
-            {error && <ErrorNote message={error} />}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving && <Loader2 className="size-4 animate-spin" />}
-                {editing ? "Save changes" : "Add loom"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editing ? `Edit loom ${editing.label}` : "Add loom"}
+        description="Loom numbers only need to be unique within their shed."
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="loom-form" loading={saving}>
+              {editing ? "Save changes" : "Add loom"}
+            </Button>
+          </>
+        }
+      >
+        <form id="loom-form" onSubmit={handleSubmit} className="space-y-4 pb-2">
+          <SelectField
+            label="Shed"
+            value={shedId}
+            error={shedError}
+            onChange={(value) => {
+              setShedId(value)
+              setShedError("")
+            }}
+            options={(sheds.data ?? []).map((shed) => ({
+              value: String(shed.id),
+              label: `Shed ${shed.name}`,
+            }))}
+            placeholder="Select shed"
+          />
+          <Field
+            label="Loom number"
+            icon={<Cog className="size-[18px]" />}
+            value={loomNumber}
+            error={numberError}
+            hint="Plain numbers — 1, 2, 3."
+            onChange={(event) => {
+              setLoomNumber(event.target.value)
+              setNumberError("")
+            }}
+          />
+          <Switch
+            label="Running"
+            description="Idle looms stay selectable for back-dated entries"
+            checked={isActive}
+            onChange={setIsActive}
+          />
+          {error && <ErrorNote message={error} />}
+        </form>
+      </Modal>
     </div>
   )
 }

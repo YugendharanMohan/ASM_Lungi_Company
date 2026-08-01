@@ -1,38 +1,18 @@
 import { useState, type FormEvent } from "react"
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react"
+import { Building2, Package, Pencil, Plus, Trash2, Truck } from "lucide-react"
 import { toast } from "sonner"
 
-import {
-  EmptyState,
-  ErrorNote,
-  Loading,
-  PageHeader,
-  TableScroller,
-} from "@/components/common"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { useApi } from "@/hooks/useApi"
 import { api, ApiError } from "@/lib/api"
 import { formatDate, formatNumber, todayISO } from "@/lib/format"
 import type { Dispatch } from "@/lib/types"
+import { Button } from "@/ui/Button"
+import { DataTable, type Column } from "@/ui/DataTable"
+import { DateField } from "@/ui/DateField"
+import { ErrorNote } from "@/ui/Feedback"
+import { Field } from "@/ui/Field"
+import { Modal } from "@/ui/Modal"
+import { PageHeader } from "@/ui/PageHeader"
 
 interface FormState {
   company_name: string
@@ -55,11 +35,16 @@ export function DispatchPage() {
   const [form, setForm] = useState<FormState>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [fieldErrors, setFieldErrors] = useState<{
+    company?: string
+    quantity?: string
+  }>({})
 
   function openCreate() {
     setEditing(null)
     setForm(EMPTY)
     setError("")
+    setFieldErrors({})
     setOpen(true)
   }
 
@@ -72,18 +57,27 @@ export function DispatchPage() {
       remarks: dispatch.remarks,
     })
     setError("")
+    setFieldErrors({})
     setOpen(true)
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    const next: typeof fieldErrors = {}
+    if (!form.company_name.trim()) next.company = "Enter the company name."
+    const quantity = Number.parseInt(form.quantity, 10)
+    if (!form.quantity.trim() || Number.isNaN(quantity))
+      next.quantity = "Enter how many lungis."
+    else if (quantity <= 0) next.quantity = "Must be more than zero."
+    setFieldErrors(next)
+    if (Object.keys(next).length) return
+
     setError("")
     setSaving(true)
-
     const payload = {
       company_name: form.company_name.trim(),
       dispatch_date: form.dispatch_date,
-      quantity: Number.parseInt(form.quantity, 10) || 0,
+      quantity,
       remarks: form.remarks.trim(),
     }
 
@@ -117,9 +111,8 @@ export function DispatchPage() {
           dispatch.company_name
         }?`,
       )
-    ) {
+    )
       return
-    }
     try {
       await api.delete(`/dispatch/${dispatch.id}`)
       toast.success("Dispatch deleted")
@@ -132,171 +125,165 @@ export function DispatchPage() {
     }
   }
 
+  const columns: Column<Dispatch>[] = [
+    {
+      key: "date",
+      header: "Date",
+      sortValue: (row) => row.dispatch_date,
+      render: (row) => (
+        <span className="whitespace-nowrap">
+          {formatDate(row.dispatch_date)}
+        </span>
+      ),
+    },
+    {
+      key: "company",
+      header: "Company",
+      sortValue: (row) => row.company_name.toLowerCase(),
+      render: (row) => <span className="font-medium">{row.company_name}</span>,
+    },
+    {
+      key: "quantity",
+      header: "Lungis",
+      align: "right",
+      sortValue: (row) => row.quantity,
+      render: (row) => (
+        <span className="tabular font-semibold">
+          {formatNumber(row.quantity)}
+        </span>
+      ),
+    },
+    {
+      key: "remarks",
+      header: "Remarks",
+      render: (row) => (
+        <span className="text-[var(--text-secondary)]">
+          {row.remarks || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (row) => (
+        <div className="flex justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={() => openEdit(row)}
+            aria-label="Edit dispatch"
+            className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--text)]"
+          >
+            <Pencil className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDelete(row)}
+            aria-label="Delete dispatch"
+            className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div>
       <PageHeader
         title="Dispatch"
         description="Lungis sent out to customer companies."
         actions={
-          <Button onClick={openCreate}>
-            <Plus className="size-4" />
+          <Button onClick={openCreate} icon={<Plus className="size-4" />}>
             Record dispatch
           </Button>
         }
       />
 
-      <Card>
-        <CardContent className="pt-6">
-          {dispatches.loading ? (
-            <Loading />
-          ) : dispatches.error ? (
-            <ErrorNote message={dispatches.error} onRetry={dispatches.reload} />
-          ) : dispatches.data?.length === 0 ? (
-            <EmptyState
-              title="No dispatches recorded"
-              description="Record a consignment to build up dispatch history."
+      <DataTable
+        data={dispatches.data}
+        columns={columns}
+        getRowId={(row) => row.id}
+        loading={dispatches.loading}
+        error={dispatches.error}
+        onRetry={dispatches.reload}
+        searchable={(row, query) =>
+          row.company_name.toLowerCase().includes(query) ||
+          row.remarks.toLowerCase().includes(query)
+        }
+        searchPlaceholder="Search company or remarks"
+        pageSize={12}
+        emptyTitle="No dispatches recorded"
+        emptyDescription="Record a consignment to build up dispatch history."
+      />
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editing ? "Edit dispatch" : "Record dispatch"}
+        description="Track what went out, to whom, and when."
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="dispatch-form" loading={saving}>
+              {editing ? "Save changes" : "Record dispatch"}
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="dispatch-form"
+          onSubmit={handleSubmit}
+          className="space-y-4 pb-2"
+        >
+          <Field
+            label="Company name"
+            icon={<Building2 className="size-[18px]" />}
+            value={form.company_name}
+            error={fieldErrors.company}
+            onChange={(event) => {
+              setForm({ ...form, company_name: event.target.value })
+              setFieldErrors((prev) => ({ ...prev, company: undefined }))
+            }}
+          />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <DateField
+              label="Dispatch date"
+              value={form.dispatch_date}
+              onChange={(value) => setForm({ ...form, dispatch_date: value })}
             />
-          ) : (
-            <TableScroller>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Company</TableHead>
-                    <TableHead className="text-right">Lungis</TableHead>
-                    <TableHead>Remarks</TableHead>
-                    <TableHead className="w-24" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(dispatches.data ?? []).map((dispatch) => (
-                    <TableRow key={dispatch.id}>
-                      <TableCell className="whitespace-nowrap">
-                        {formatDate(dispatch.dispatch_date)}
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        {dispatch.company_name}
-                      </TableCell>
-                      <TableCell className="tabular text-right">
-                        {formatNumber(dispatch.quantity)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {dispatch.remarks || "—"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Edit dispatch"
-                            onClick={() => openEdit(dispatch)}
-                          >
-                            <Pencil className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label="Delete dispatch"
-                            onClick={() => void handleDelete(dispatch)}
-                          >
-                            <Trash2 className="size-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableScroller>
-          )}
-        </CardContent>
-      </Card>
+            <Field
+              label="Number of lungis"
+              type="number"
+              min="1"
+              step="1"
+              icon={<Package className="size-[18px]" />}
+              value={form.quantity}
+              error={fieldErrors.quantity}
+              onChange={(event) => {
+                setForm({ ...form, quantity: event.target.value })
+                setFieldErrors((prev) => ({ ...prev, quantity: undefined }))
+              }}
+            />
+          </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {editing ? "Edit dispatch" : "Record dispatch"}
-            </DialogTitle>
-            <DialogDescription>
-              Track what went out, to whom, and when.
-            </DialogDescription>
-          </DialogHeader>
+          <Field
+            label="Remarks"
+            icon={<Truck className="size-[18px]" />}
+            value={form.remarks}
+            hint="Optional"
+            onChange={(event) =>
+              setForm({ ...form, remarks: event.target.value })
+            }
+          />
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="company">Company name</Label>
-              <Input
-                id="company"
-                required
-                value={form.company_name}
-                onChange={(event) =>
-                  setForm({ ...form, company_name: event.target.value })
-                }
-                placeholder="Chennai Textiles Ltd"
-              />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="dispatch-date">Dispatch date</Label>
-                <Input
-                  id="dispatch-date"
-                  type="date"
-                  required
-                  value={form.dispatch_date}
-                  onChange={(event) =>
-                    setForm({ ...form, dispatch_date: event.target.value })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="quantity">Number of lungis</Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  min="0"
-                  step="1"
-                  required
-                  value={form.quantity}
-                  onChange={(event) =>
-                    setForm({ ...form, quantity: event.target.value })
-                  }
-                  placeholder="500"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="remarks">Remarks (optional)</Label>
-              <Input
-                id="remarks"
-                value={form.remarks}
-                onChange={(event) =>
-                  setForm({ ...form, remarks: event.target.value })
-                }
-                placeholder="Priority order"
-              />
-            </div>
-
-            {error && <ErrorNote message={error} />}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving && <Loader2 className="size-4 animate-spin" />}
-                {editing ? "Save changes" : "Record dispatch"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          {error && <ErrorNote message={error} />}
+        </form>
+      </Modal>
     </div>
   )
 }

@@ -1,47 +1,20 @@
 import { useState, type FormEvent } from "react"
-import { Loader2, ShieldCheck, Trash2, UserPlus } from "lucide-react"
+import { Mail, ShieldCheck, Trash2, User, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 
-import {
-  EmptyState,
-  ErrorNote,
-  Loading,
-  PageHeader,
-  TableScroller,
-} from "@/components/common"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { useAuth } from "@/contexts/AuthContext"
 import { useApi } from "@/hooks/useApi"
 import { api, ApiError } from "@/lib/api"
 import { formatDate } from "@/lib/format"
 import type { AppUser, UserRole } from "@/lib/types"
+import { Button } from "@/ui/Button"
+import { DataTable, type Column } from "@/ui/DataTable"
+import { Badge, ErrorNote } from "@/ui/Feedback"
+import { Field } from "@/ui/Field"
+import { Modal } from "@/ui/Modal"
+import { PageHeader } from "@/ui/PageHeader"
+import { SegmentedControl } from "@/ui/SegmentedControl"
+import { SelectField } from "@/ui/SelectField"
 
 export function UserAccess() {
   const { user: currentUser } = useAuth()
@@ -53,9 +26,14 @@ export function UserAccess() {
   const [role, setRole] = useState<UserRole>("STAFF")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [emailError, setEmailError] = useState("")
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setEmailError("Enter a valid email address.")
+      return
+    }
     setError("")
     setSaving(true)
     try {
@@ -80,29 +58,10 @@ export function UserAccess() {
     }
   }
 
-  async function toggleActive(target: AppUser) {
+  async function patch(target: AppUser, body: Partial<AppUser>, message: string) {
     try {
-      await api.patch<AppUser>(`/users/${target.id}`, {
-        is_active: !target.is_active,
-      })
-      toast.success(
-        target.is_active
-          ? `${target.email} deactivated`
-          : `${target.email} reactivated`,
-      )
-      users.reload()
-    } catch (caught) {
-      toast.error(
-        caught instanceof ApiError ? caught.message : "Could not update.",
-        { duration: 8000 },
-      )
-    }
-  }
-
-  async function changeRole(target: AppUser, nextRole: UserRole) {
-    try {
-      await api.patch<AppUser>(`/users/${target.id}`, { role: nextRole })
-      toast.success(`${target.email} is now ${nextRole.toLowerCase()}`)
+      await api.patch<AppUser>(`/users/${target.id}`, body)
+      toast.success(message)
       users.reload()
     } catch (caught) {
       toast.error(
@@ -126,191 +85,196 @@ export function UserAccess() {
     }
   }
 
+  const columns: Column<AppUser>[] = [
+    {
+      key: "email",
+      header: "Email",
+      sortValue: (row) => row.email,
+      render: (row) => (
+        <span className="font-medium">
+          {row.email}
+          {row.id === currentUser?.id && (
+            <span className="ml-2 text-[12px] font-normal text-[var(--text-tertiary)]">
+              you
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "name",
+      header: "Name",
+      sortValue: (row) => row.display_name,
+      render: (row) => (
+        <span className="text-[var(--text-secondary)]">
+          {row.display_name || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "role",
+      header: "Role",
+      sortValue: (row) => row.role,
+      render: (row) => (
+        <SegmentedControl
+          size="sm"
+          aria-label={`Role for ${row.email}`}
+          value={row.role}
+          onChange={(value) =>
+            void patch(
+              row,
+              { role: value },
+              `${row.email} is now ${value.toLowerCase()}`,
+            )
+          }
+          segments={[
+            { value: "STAFF", label: "Staff" },
+            { value: "ADMIN", label: "Admin" },
+          ]}
+        />
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      sortValue: (row) => (row.is_active ? 0 : 1),
+      render: (row) => (
+        <Badge tone={row.is_active ? "success" : "neutral"}>
+          {row.is_active ? "Active" : "Disabled"}
+        </Badge>
+      ),
+    },
+    {
+      key: "last",
+      header: "Last sign-in",
+      sortValue: (row) => row.last_login_at ?? "",
+      render: (row) => (
+        <span className="whitespace-nowrap text-[var(--text-secondary)]">
+          {row.last_login_at ? formatDate(row.last_login_at) : "Never"}
+        </span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (row) => (
+        <div className="flex items-center justify-end gap-1.5">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() =>
+              void patch(
+                row,
+                { is_active: !row.is_active },
+                row.is_active
+                  ? `${row.email} deactivated`
+                  : `${row.email} reactivated`,
+              )
+            }
+          >
+            {row.is_active ? "Disable" : "Enable"}
+          </Button>
+          <button
+            type="button"
+            disabled={row.id === currentUser?.id}
+            onClick={() => void handleDelete(row)}
+            aria-label={`Remove ${row.email}`}
+            className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] disabled:pointer-events-none disabled:opacity-30"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div>
       <PageHeader
         title="User Access"
         description="Only these addresses can sign in. There is no public sign-up."
         actions={
-          <Button onClick={() => setOpen(true)}>
-            <UserPlus className="size-4" />
+          <Button onClick={() => setOpen(true)} icon={<UserPlus className="size-4" />}>
             Grant access
           </Button>
         }
       />
 
-      <div className="mb-4 rounded-md border bg-muted/50 p-4 text-sm">
-        <p className="flex items-start gap-2">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-          <span>
-            Adding an address here authorises it. The person must still have a
-            Firebase account (create it in the Firebase console under
-            Authentication → Users) and verify their email before they can get
-            in.
-          </span>
+      <div className="mb-5 flex items-start gap-3 rounded-[16px] border border-[var(--border-subtle)] bg-[var(--accent-soft)] px-4 py-3.5 text-[13.5px] text-[var(--text)]">
+        <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
+        <p>
+          Adding an address here authorises it. The person must still have a
+          Firebase account — create it under{" "}
+          <span className="font-medium">Authentication → Users</span> — and
+          verify their email before they can get in.
         </p>
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
-          {users.loading ? (
-            <Loading />
-          ) : users.error ? (
-            <ErrorNote message={users.error} onRetry={users.reload} />
-          ) : users.data?.length === 0 ? (
-            <EmptyState title="No users yet" />
-          ) : (
-            <TableScroller>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Last sign-in</TableHead>
-                    <TableHead className="w-32" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(users.data ?? []).map((row) => {
-                    const isSelf = row.id === currentUser?.id
-                    return (
-                      <TableRow key={row.id}>
-                        <TableCell className="font-medium">
-                          {row.email}
-                          {isSelf && (
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              (you)
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>{row.display_name || "—"}</TableCell>
-                        <TableCell>
-                          <Select
-                            value={row.role}
-                            onValueChange={(value) =>
-                              void changeRole(row, value as UserRole)
-                            }
-                          >
-                            <SelectTrigger className="h-8 w-28">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="ADMIN">Admin</SelectItem>
-                              <SelectItem value="STAFF">Staff</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={row.is_active ? "default" : "secondary"}
-                          >
-                            {row.is_active ? "Active" : "Disabled"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {row.last_login_at
-                            ? formatDate(row.last_login_at)
-                            : "Never"}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void toggleActive(row)}
-                            >
-                              {row.is_active ? "Disable" : "Enable"}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              disabled={isSelf}
-                              aria-label={`Remove ${row.email}`}
-                              onClick={() => void handleDelete(row)}
-                            >
-                              <Trash2 className="size-4 text-destructive" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </TableScroller>
-          )}
-        </CardContent>
-      </Card>
+      <DataTable
+        data={users.data}
+        columns={columns}
+        getRowId={(row) => row.id}
+        loading={users.loading}
+        error={users.error}
+        onRetry={users.reload}
+        searchable={(row, query) =>
+          row.email.toLowerCase().includes(query) ||
+          row.display_name.toLowerCase().includes(query)
+        }
+        searchPlaceholder="Search email or name"
+        pageSize={12}
+        emptyTitle="No users yet"
+      />
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Grant access</DialogTitle>
-            <DialogDescription>
-              Authorise an email address to use the system.
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="user-email">Email address</Label>
-              <Input
-                id="user-email"
-                type="email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="supervisor@company.com"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="user-name">Display name (optional)</Label>
-              <Input
-                id="user-name"
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="user-role">Role</Label>
-              <Select
-                value={role}
-                onValueChange={(value) => setRole(value as UserRole)}
-              >
-                <SelectTrigger id="user-role" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="STAFF">
-                    Staff — record production and wages
-                  </SelectItem>
-                  <SelectItem value="ADMIN">
-                    Admin — also manages users and deletions
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {error && <ErrorNote message={error} />}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving && <Loader2 className="size-4 animate-spin" />}
-                Grant access
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Grant access"
+        description="Authorise an email address to use the system."
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="access-form" loading={saving}>
+              Grant access
+            </Button>
+          </>
+        }
+      >
+        <form id="access-form" onSubmit={handleSubmit} className="space-y-4 pb-2">
+          <Field
+            label="Email address"
+            type="email"
+            icon={<Mail className="size-[18px]" />}
+            value={email}
+            error={emailError}
+            onChange={(event) => {
+              setEmail(event.target.value)
+              setEmailError("")
+            }}
+          />
+          <Field
+            label="Display name"
+            icon={<User className="size-[18px]" />}
+            value={displayName}
+            hint="Optional"
+            onChange={(event) => setDisplayName(event.target.value)}
+          />
+          <SelectField
+            label="Role"
+            value={role}
+            onChange={(value) => setRole(value as UserRole)}
+            options={[
+              { value: "STAFF", label: "Staff — record production and wages" },
+              { value: "ADMIN", label: "Admin — also manages users" },
+            ]}
+          />
+          {error && <ErrorNote message={error} />}
+        </form>
+      </Modal>
     </div>
   )
 }

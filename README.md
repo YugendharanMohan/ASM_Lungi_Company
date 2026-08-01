@@ -10,14 +10,33 @@ React + TypeScript + Vite + Tailwind + shadcn/ui · FastAPI · PostgreSQL · Fir
 
 | Area | Detail |
 |---|---|
-| **Daily meter entry** | Date, shift, worker, loom, meters, rate. Total is calculated. One entry per worker + loom + date + shift, enforced by a database constraint. |
-| **Workers** | Name, phone, assigned shed and loom, rate per meter, active flag. Add / edit / delete / list. |
+| **Daily entry** | Date, shift, **pick** (88x96 / 88x92 / 88x80), worker, loom, metres, rate. Total is calculated. Any worker can be booked to any loom. One entry per worker + loom + date + shift, enforced by a database constraint. |
+| **Workers** | Name, phone, shed, rate per metre, active flag. Searchable list. Workers are **not** tied to a loom — that is recorded per entry. |
 | **Sheds** | Add, edit, delete. Each shed holds many looms. |
-| **Looms** | Belong to one shed. Change the shed to move a loom. Numbers are unique within a shed. |
-| **Salary** | Daily / weekly / monthly totals per worker, from meters × rate. CSV export. |
+| **Looms** | Belong to one shed. Change the shed to move a loom. Numbers are plain (1, 2, 3) and unique within a shed; displayed everywhere as `Shed - Loom`, e.g. `AA - 3`. |
+| **Salary** | Any **from / to** period, plus this-week and this-month presets. Per-worker **PDF receipt** with a day × loom grid and a rate-by-rate breakdown. CSV export. |
 | **Dispatch** | Company, date, number of lungis, remarks, with full history. |
-| **Dashboard** | Today's and this week's production, worker/loom/shed counts, weekly wage total, weekly dispatch summary, 7-day chart. |
+| **Overview** | Today's production, active workers, active looms, weekly salary, weekly dispatch, 7-day chart. |
 | **User access** | Admin-only. There is no public sign-up. |
+
+### Picks and rates
+
+Three picks are woven — `88x96`, `88x92`, `88x80` — and each carries its own
+piece rate. The rate is typed in per entry rather than looked up, because it
+moves with the market and with the customer.
+
+The salary receipt therefore never shows a single blended rate. Metres are
+grouped by the rate they were paid at and each band gets its own line:
+
+```
+PICK     RATE   METERS     AMOUNT
+88x80    8.50    358.9   3,050.82
+88x92    9.00    298.5   2,686.41
+88x96    9.50    523.9   4,977.34
+TOTAL           1181.3  10,714.57
+```
+
+Those lines sum to the amount due, so the person being paid can check it.
 
 ---
 
@@ -155,12 +174,37 @@ backend/
 
 frontend/
   src/
-    components/ AppLayout, shared bits, shadcn/ui primitives
+    components/ AppShell — sidebar on desktop, tab bar on phones
     contexts/   AuthContext — the sign-in state machine
     hooks/      useApi
     lib/        api client, firebase init, formatters, types
     pages/      one per screen
+    ui/         the design system (see below)
 ```
+
+## Design system
+
+Apple-inspired restraint applied to a working tool: `#F5F5F7` / `#0A0A0A`
+grounds, one blue for every action, SF Pro on Apple hardware and Inter
+everywhere else. All tokens live at the top of `src/index.css`.
+
+Components in `src/ui/` are built from scratch — no component library.
+`Button`, `Card`, `StatCard`, `DataTable` (sticky header, search, sort,
+pagination), `Field` / `SelectField` / `DateField` (floating labels, inline
+validation, icons inside the control), `SearchInput`, `SegmentedControl`,
+`Switch`, `Modal` (bottom sheet on phones), `Feedback` (skeletons, empty and
+error states). Motion comes from Framer Motion through one shared vocabulary in
+`src/ui/motion.ts`, and everything honours `prefers-reduced-motion`.
+
+Two decisions worth knowing:
+
+- **The dark accent is `#0A84FF`, not `#0071E3`.** On `#0A0A0A` the light-mode
+  blue reaches only ~3.5:1; the lighter one clears 4.5:1. This is the pair
+  Apple ships.
+- **Selects and date fields are native controls, restyled.** A custom listbox
+  would animate more prettily, but the native ones give the iOS wheel picker
+  and Android sheet for free, plus keyboard type-ahead and screen-reader
+  support. Only the chrome is ours.
 
 ## Decisions worth knowing
 
@@ -168,6 +212,9 @@ frontend/
   drift lands in someone's wages.
 - **The rate is copied onto each production entry.** Raising a worker's rate
   must not retroactively rewrite what they were already owed.
+- **Receipts are rendered server-side** (reportlab), so the slip a worker is
+  handed is identical whoever prints it rather than depending on a browser's
+  print dialog.
 - **Duplicate entries are blocked by a unique constraint**, not a check-then-
   insert in the route — two simultaneous submissions would both pass a check.
 - **Deleting a worker or loom that has production history is refused** (409).

@@ -3,6 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_admin
+from app.core.labels import loom_label
 from app.db.session import get_db
 from app.models import Loom, ProductionEntry, Shed
 from app.schemas.masters import LoomCreate, LoomOut, LoomUpdate
@@ -18,6 +19,7 @@ def _to_out(loom: Loom, shed_name: str) -> LoomOut:
         is_active=loom.is_active,
         created_at=loom.created_at,
         shed_name=shed_name,
+        label=loom_label(shed_name, loom.loom_number),
     )
 
 

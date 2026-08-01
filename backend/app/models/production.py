@@ -19,6 +19,19 @@ class Shift(str, enum.Enum):
     NIGHT = "NIGHT"
 
 
+class PickType(str, enum.Enum):
+    """Reed/pick count of the cloth being woven.
+
+    Each pick carries its own piece rate, and the rate is typed in per entry
+    rather than looked up — rates move with the market and with the customer,
+    and the person at the desk knows the number for that day's cloth.
+    """
+
+    P88X96 = "88x96"
+    P88X92 = "88x92"
+    P88X80 = "88x80"
+
+
 class ProductionEntry(Base):
     """One meter reading for one worker, on one loom, for one shift.
 
@@ -43,6 +56,9 @@ class ProductionEntry(Base):
     entry_date: Mapped[date] = mapped_column(Date, index=True)
     shift: Mapped[Shift] = mapped_column(
         Enum(Shift, native_enum=False, length=8), default=Shift.DAY
+    )
+    pick_type: Mapped[PickType] = mapped_column(
+        Enum(PickType, native_enum=False, length=12), default=PickType.P88X96
     )
     worker_id: Mapped[int] = mapped_column(
         ForeignKey("workers.id", ondelete="CASCADE"), index=True

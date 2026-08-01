@@ -1,64 +1,51 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
-import { CheckCircle2, Loader2, Plus, Trash2 } from "lucide-react"
+import { Check, Gauge, Plus, Ruler, Trash2, User } from "lucide-react"
 import { toast } from "sonner"
 
-import {
-  EmptyState,
-  ErrorNote,
-  Loading,
-  PageHeader,
-  TableScroller,
-} from "@/components/common"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { useApi } from "@/hooks/useApi"
 import { api, ApiError } from "@/lib/api"
-import {
-  formatCurrency,
-  formatDate,
-  formatMeters,
-  todayISO,
-} from "@/lib/format"
-import type { Loom, ProductionEntry, Shift, Worker } from "@/lib/types"
+import { formatCurrency, formatDate, formatMeters, todayISO } from "@/lib/format"
+import { PICK_TYPES } from "@/lib/types"
+import type { Loom, PickType, ProductionEntry, Shift, Worker } from "@/lib/types"
+import { Button } from "@/ui/Button"
+import { Card, CardHeader } from "@/ui/Card"
+import { DataTable, type Column } from "@/ui/DataTable"
+import { DateField } from "@/ui/DateField"
+import { ErrorNote } from "@/ui/Feedback"
+import { Field } from "@/ui/Field"
+import { PageHeader } from "@/ui/PageHeader"
+import { SegmentedControl } from "@/ui/SegmentedControl"
+import { SelectField } from "@/ui/SelectField"
+
+interface FormErrors {
+  worker?: string
+  loom?: string
+  meters?: string
+  rate?: string
+}
 
 export function Production() {
   const [entryDate, setEntryDate] = useState(todayISO())
   const [shift, setShift] = useState<Shift>("DAY")
+  const [pick, setPick] = useState<PickType>("88x96")
   const [workerId, setWorkerId] = useState("")
   const [loomId, setLoomId] = useState("")
   const [meters, setMeters] = useState("")
   const [rate, setRate] = useState("")
-  const [submitting, setSubmitting] = useState(false)
+  const [errors, setErrors] = useState<FormErrors>({})
   const [formError, setFormError] = useState("")
+  const [submitting, setSubmitting] = useState(false)
 
   const workers = useApi<Worker[]>(() =>
     api.get<Worker[]>("/workers", { active_only: true }),
   )
   const looms = useApi<Loom[]>(() => api.get<Loom[]>("/looms"))
   const entries = useApi<ProductionEntry[]>(
-    () => api.get<ProductionEntry[]>("/production", { start_date: entryDate, end_date: entryDate }),
+    () =>
+      api.get<ProductionEntry[]>("/production", {
+        start_date: entryDate,
+        end_date: entryDate,
+      }),
     [entryDate],
   )
 
@@ -67,50 +54,60 @@ export function Production() {
     [workers.data, workerId],
   )
 
-  // Picking a worker fills in their rate and their usual loom — the common
-  // case is one worker on one loom, and retyping both every shift is the
-  // single most repeated action in this app.
+  // Choosing a worker suggests their standing rate. It is only a starting
+  // point — the rate belongs to the pick being woven, so it stays editable and
+  // whatever is in the box at submit time is what gets stored.
   useEffect(() => {
-    if (!selectedWorker) return
-    setRate(String(selectedWorker.rate_per_meter ?? ""))
-    if (selectedWorker.loom_id) setLoomId(String(selectedWorker.loom_id))
-  }, [selectedWorker])
+    if (selectedWorker && !rate) {
+      setRate(String(selectedWorker.rate_per_meter ?? ""))
+    }
+  }, [selectedWorker, rate])
 
   const total =
     (Number.parseFloat(meters) || 0) * (Number.parseFloat(rate) || 0)
 
+  function validate(): boolean {
+    const next: FormErrors = {}
+    if (!workerId) next.worker = "Choose a worker."
+    if (!loomId) next.loom = "Choose a loom."
+    const m = Number.parseFloat(meters)
+    if (!meters.trim() || Number.isNaN(m)) next.meters = "Enter the metres."
+    else if (m <= 0) next.meters = "Metres must be more than zero."
+    const r = Number.parseFloat(rate)
+    if (!rate.trim() || Number.isNaN(r)) next.rate = "Enter the rate."
+    else if (r <= 0) next.rate = "Rate must be more than zero."
+    setErrors(next)
+    return Object.keys(next).length === 0
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     setFormError("")
-
-    if (!workerId || !loomId) {
-      setFormError("Choose both a worker and a loom.")
-      return
-    }
+    if (!validate()) return
 
     setSubmitting(true)
     try {
       await api.post<ProductionEntry>("/production", {
         entry_date: entryDate,
         shift,
+        pick_type: pick,
         worker_id: Number(workerId),
         loom_id: Number(loomId),
-        meters: Number.parseFloat(meters) || 0,
-        rate_per_meter: Number.parseFloat(rate) || 0,
+        meters: Number.parseFloat(meters),
+        rate_per_meter: Number.parseFloat(rate),
       })
-      toast.success("Production entry saved", {
+      toast.success("Entry saved", {
         description: `${selectedWorker?.name ?? "Worker"} · ${formatMeters(
-          Number.parseFloat(meters) || 0,
+          Number.parseFloat(meters),
         )} · ${formatCurrency(total)}`,
       })
       setMeters("")
+      setErrors({})
       entries.reload()
     } catch (caught) {
-      const message =
-        caught instanceof ApiError
-          ? caught.message
-          : "Could not save the entry."
-      setFormError(message)
+      setFormError(
+        caught instanceof ApiError ? caught.message : "Could not save the entry.",
+      )
     } finally {
       setSubmitting(false)
     }
@@ -119,13 +116,12 @@ export function Production() {
   async function handleDelete(entry: ProductionEntry) {
     if (
       !window.confirm(
-        `Delete ${entry.worker_name}'s ${entry.shift.toLowerCase()} shift entry of ${formatMeters(
+        `Delete ${entry.worker_name}'s ${entry.shift.toLowerCase()} entry of ${formatMeters(
           entry.meters,
         )}?`,
       )
-    ) {
+    )
       return
-    }
     try {
       await api.delete(`/production/${entry.id}`)
       toast.success("Entry deleted")
@@ -137,226 +133,276 @@ export function Production() {
     }
   }
 
+  const dayMeters = (entries.data ?? []).reduce((sum, e) => sum + e.meters, 0)
   const dayTotal = (entries.data ?? []).reduce(
-    (sum, entry) => sum + entry.total_amount,
+    (sum, e) => sum + e.total_amount,
     0,
   )
-  const dayMeters = (entries.data ?? []).reduce(
-    (sum, entry) => sum + entry.meters,
-    0,
-  )
+
+  const columns: Column<ProductionEntry>[] = [
+    {
+      key: "worker",
+      header: "Worker",
+      sortValue: (row) => row.worker_name,
+      render: (row) => (
+        <span className="font-medium">{row.worker_name}</span>
+      ),
+    },
+    {
+      key: "loom",
+      header: "Loom",
+      sortValue: (row) => row.loom_label,
+      render: (row) => (
+        <span className="text-[var(--text-secondary)]">{row.loom_label}</span>
+      ),
+    },
+    {
+      key: "shift",
+      header: "Shift",
+      sortValue: (row) => row.shift,
+      render: (row) => (
+        <span className="text-[var(--text-secondary)]">
+          {row.shift === "DAY" ? "Day" : "Night"}
+        </span>
+      ),
+    },
+    {
+      key: "pick",
+      header: "Pick",
+      sortValue: (row) => row.pick_type,
+      render: (row) => (
+        <span className="tabular text-[var(--text-secondary)]">
+          {row.pick_type}
+        </span>
+      ),
+    },
+    {
+      key: "meters",
+      header: "Metres",
+      align: "right",
+      sortValue: (row) => row.meters,
+      render: (row) => (
+        <span className="tabular">{row.meters.toFixed(2)}</span>
+      ),
+      cellClassName: "tabular",
+    },
+    {
+      key: "rate",
+      header: "Rate",
+      align: "right",
+      sortValue: (row) => row.rate_per_meter,
+      render: (row) => (
+        <span className="tabular text-[var(--text-secondary)]">
+          {row.rate_per_meter.toFixed(2)}
+        </span>
+      ),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      sortValue: (row) => row.total_amount,
+      render: (row) => (
+        <span className="tabular font-semibold">
+          {formatCurrency(row.total_amount)}
+        </span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (row) => (
+        <button
+          type="button"
+          onClick={() => void handleDelete(row)}
+          aria-label={`Delete entry for ${row.worker_name}`}
+          className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] opacity-0 transition-all hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] focus-visible:opacity-100 group-hover:opacity-100"
+        >
+          <Trash2 className="size-4" />
+        </button>
+      ),
+    },
+  ]
 
   return (
     <div>
       <PageHeader
-        title="Daily Meter Entry"
-        description="Record what each worker produced, shift by shift."
+        title="Daily Entry"
+        description="Record what each worker wove, shift by shift. Any worker can be booked to any loom."
       />
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle className="text-base">New entry</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="date">Date</Label>
-                  <Input
-                    id="date"
-                    type="date"
-                    required
-                    max={todayISO()}
-                    value={entryDate}
-                    onChange={(event) => setEntryDate(event.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="shift">Shift</Label>
-                  <Select
-                    value={shift}
-                    onValueChange={(value) => setShift(value as Shift)}
-                  >
-                    <SelectTrigger id="shift" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="DAY">Day shift</SelectItem>
-                      <SelectItem value="NIGHT">Night shift</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+      {/* Side by side only from 1536px. The entries table carries eight
+          columns; below that the form beside it squeezes Amount off the edge
+          and the operator is scrolling to read the figure they just typed. */}
+      <div className="grid gap-5 2xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+        {/* Capped when stacked: a 1200px-wide segmented control for two shift
+            options looks like a mistake, and the eye has to travel the whole
+            width to pair a label with its field. */}
+        <Card className="h-fit w-full max-w-[560px] 2xl:max-w-none">
+          <CardHeader title="New entry" />
 
-              <div className="space-y-1.5">
-                <Label htmlFor="worker">Worker</Label>
-                <Select value={workerId} onValueChange={setWorkerId}>
-                  <SelectTrigger id="worker" className="w-full">
-                    <SelectValue placeholder="Select worker" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(workers.data ?? []).map((worker) => (
-                      <SelectItem key={worker.id} value={String(worker.id)}>
-                        {worker.name}
-                        {worker.shed_name ? ` · Shed ${worker.shed_name}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {workers.data?.length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    No active workers yet — add one under Workers first.
-                  </p>
-                )}
-              </div>
+          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+            <DateField
+              label="Date"
+              value={entryDate}
+              onChange={setEntryDate}
+              max={todayISO()}
+              required
+            />
 
-              <div className="space-y-1.5">
-                <Label htmlFor="loom">Loom</Label>
-                <Select value={loomId} onValueChange={setLoomId}>
-                  <SelectTrigger id="loom" className="w-full">
-                    <SelectValue placeholder="Select loom" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(looms.data ?? []).map((loom) => (
-                      <SelectItem key={loom.id} value={String(loom.id)}>
-                        Shed {loom.shed_name} · Loom {loom.loom_number}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div>
+              <p className="mb-2 pl-1 text-[12px] font-medium text-[var(--text-secondary)]">
+                Shift
+              </p>
+              <SegmentedControl
+                aria-label="Shift"
+                value={shift}
+                onChange={setShift}
+                segments={[
+                  { value: "DAY", label: "Day" },
+                  { value: "NIGHT", label: "Night" },
+                ]}
+                className="w-full"
+              />
+            </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="meters">Meters</Label>
-                  <Input
-                    id="meters"
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    min="0"
-                    required
-                    value={meters}
-                    onChange={(event) => setMeters(event.target.value)}
-                    placeholder="0.00"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="rate">Rate (₹/m)</Label>
-                  <Input
-                    id="rate"
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    min="0"
-                    required
-                    value={rate}
-                    onChange={(event) => setRate(event.target.value)}
-                    placeholder="0.00"
-                  />
-                </div>
-              </div>
+            <div>
+              <p className="mb-2 pl-1 text-[12px] font-medium text-[var(--text-secondary)]">
+                Pick
+              </p>
+              <SegmentedControl
+                aria-label="Pick type"
+                value={pick}
+                onChange={setPick}
+                segments={PICK_TYPES.map((value) => ({ value, label: value }))}
+                className="w-full"
+              />
+            </div>
 
-              <div className="flex items-center justify-between rounded-md bg-muted px-4 py-3">
-                <span className="text-sm text-muted-foreground">
-                  Total amount
-                </span>
-                <span className="tabular text-lg font-semibold">
-                  {formatCurrency(total)}
-                </span>
-              </div>
+            <SelectField
+              label="Worker"
+              icon={<User className="size-[18px]" />}
+              value={workerId}
+              onChange={(value) => {
+                setWorkerId(value)
+                setErrors((prev) => ({ ...prev, worker: undefined }))
+              }}
+              error={errors.worker}
+              options={(workers.data ?? []).map((worker) => ({
+                value: String(worker.id),
+                label: worker.name,
+              }))}
+              placeholder="Select worker"
+              hint={
+                workers.data?.length === 0
+                  ? "No active workers — add one under Workers first."
+                  : undefined
+              }
+            />
 
-              {formError && <ErrorNote message={formError} />}
+            <SelectField
+              label="Loom"
+              icon={<Gauge className="size-[18px]" />}
+              value={loomId}
+              onChange={(value) => {
+                setLoomId(value)
+                setErrors((prev) => ({ ...prev, loom: undefined }))
+              }}
+              error={errors.loom}
+              options={(looms.data ?? []).map((loom) => ({
+                value: String(loom.id),
+                label: loom.label,
+              }))}
+              placeholder="Select loom"
+            />
 
-              <Button type="submit" className="w-full" disabled={submitting}>
-                {submitting ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Plus className="size-4" />
-                )}
-                Save entry
-              </Button>
-            </form>
-          </CardContent>
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="Metres"
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                icon={<Ruler className="size-[18px]" />}
+                value={meters}
+                error={errors.meters}
+                onChange={(event) => {
+                  setMeters(event.target.value)
+                  setErrors((prev) => ({ ...prev, meters: undefined }))
+                }}
+              />
+              <Field
+                label="Rate"
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                suffix="₹/m"
+                value={rate}
+                error={errors.rate}
+                onChange={(event) => {
+                  setRate(event.target.value)
+                  setErrors((prev) => ({ ...prev, rate: undefined }))
+                }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-[14px] bg-[var(--surface-sunken)] px-4 py-3.5">
+              <span className="text-[13.5px] text-[var(--text-secondary)]">
+                Total amount
+              </span>
+              <span className="tabular text-[19px] font-semibold tracking-[-0.02em]">
+                {formatCurrency(total)}
+              </span>
+            </div>
+
+            {formError && <ErrorNote message={formError} />}
+
+            <Button
+              type="submit"
+              fullWidth
+              size="lg"
+              loading={submitting}
+              icon={<Plus className="size-4" />}
+            >
+              Save entry
+            </Button>
+          </form>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-            <CardTitle className="text-base">
-              Entries for {formatDate(entryDate)}
-            </CardTitle>
-            {(entries.data?.length ?? 0) > 0 && (
-              <span className="tabular text-sm text-muted-foreground">
-                {formatMeters(dayMeters)} · {formatCurrency(dayTotal)}
-              </span>
-            )}
-          </CardHeader>
-          <CardContent>
-            {entries.loading ? (
-              <Loading />
-            ) : entries.error ? (
-              <ErrorNote message={entries.error} onRetry={entries.reload} />
-            ) : entries.data?.length === 0 ? (
-              <EmptyState
-                title="No entries for this date"
-                description="Saved entries will appear here."
-              />
-            ) : (
-              <TableScroller>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Worker</TableHead>
-                      <TableHead>Loom</TableHead>
-                      <TableHead>Shift</TableHead>
-                      <TableHead className="text-right">Meters</TableHead>
-                      <TableHead className="text-right">Rate</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead className="w-10" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(entries.data ?? []).map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell className="font-medium">
-                          {entry.worker_name}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-muted-foreground">
-                          {entry.shed_name} · {entry.loom_number}
-                        </TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center gap-1.5 text-sm">
-                            <CheckCircle2 className="size-3.5 text-success" />
-                            {entry.shift === "DAY" ? "Day" : "Night"}
-                          </span>
-                        </TableCell>
-                        <TableCell className="tabular text-right">
-                          {entry.meters.toFixed(2)}
-                        </TableCell>
-                        <TableCell className="tabular text-right">
-                          {entry.rate_per_meter.toFixed(2)}
-                        </TableCell>
-                        <TableCell className="tabular text-right font-medium">
-                          {formatCurrency(entry.total_amount)}
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Delete entry for ${entry.worker_name}`}
-                            onClick={() => void handleDelete(entry)}
-                          >
-                            <Trash2 className="size-4 text-destructive" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableScroller>
-            )}
-          </CardContent>
+          <CardHeader
+            title={formatDate(entryDate)}
+            description={
+              (entries.data?.length ?? 0) > 0
+                ? `${formatMeters(dayMeters)} · ${formatCurrency(dayTotal)}`
+                : "Entries recorded on this date"
+            }
+            action={
+              (entries.data?.length ?? 0) > 0 ? (
+                <span className="flex items-center gap-1.5 rounded-[var(--radius-pill)] bg-[var(--success-soft)] px-3 py-1 text-[12.5px] font-medium text-[var(--success)]">
+                  <Check className="size-3.5" />
+                  {entries.data?.length} entries
+                </span>
+              ) : undefined
+            }
+          />
+
+          <div className="mt-4">
+            <DataTable
+              bare
+              data={entries.data}
+              columns={columns}
+              getRowId={(row) => row.id}
+              loading={entries.loading}
+              error={entries.error}
+              onRetry={entries.reload}
+              pageSize={10}
+              emptyTitle="No entries yet"
+              emptyDescription="Saved entries for this date appear here."
+            />
+          </div>
         </Card>
       </div>
     </div>

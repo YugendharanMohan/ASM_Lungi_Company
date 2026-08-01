@@ -53,6 +53,8 @@ class LoomOut(LoomBase):
     id: int
     created_at: datetime
     shed_name: str = ""
+    # "AA - 3" — how a loom is named everywhere it is shown to a person.
+    label: str = ""
 
 
 # --------------------------------------------------------------------------
@@ -62,7 +64,6 @@ class WorkerBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     phone: str = Field(default="", max_length=20)
     shed_id: int | None = None
-    loom_id: int | None = None
     rate_per_meter: float = Field(default=0, ge=0)
     is_active: bool = True
 
@@ -75,7 +76,6 @@ class WorkerUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     phone: str | None = Field(default=None, max_length=20)
     shed_id: int | None = None
-    loom_id: int | None = None
     rate_per_meter: float | None = Field(default=None, ge=0)
     is_active: bool | None = None
 
@@ -86,4 +86,3 @@ class WorkerOut(WorkerBase):
     id: int
     created_at: datetime
     shed_name: str = ""
-    loom_number: str = ""
