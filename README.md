@@ -239,6 +239,9 @@ Two decisions worth knowing:
 - **Deleting a worker or loom that has production history is refused** (409).
   Deactivate instead, so wage records survive.
 - **The week runs Monday–Sunday**, matching ISO and the week people say aloud.
+- **Shifts are twelve hours: day 1 AM–1 PM, night 1 PM–1 AM.** The night shift
+  crosses midnight, so an entry's date is the date the shift *started* — a
+  night entry booked on the 5th runs to 1 AM on the 6th.
 - **Dates are handled as calendar days.** `toISODate` shifts by the local
   offset before slicing, because `toISOString()` rolls the date backwards every
   evening in IST.

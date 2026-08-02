@@ -31,7 +31,17 @@ export function Modal({
   size?: "sm" | "md" | "lg"
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
+
+  // Callers pass `onClose={() => setOpen(false)}`, a fresh closure on every
+  // render. Kept in a ref so the setup effect below can depend on `open`
+  // alone: depending on the callback identity re-ran the whole effect on
+  // every keystroke, and the re-run stole focus mid-word.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => {
+    onCloseRef.current = onClose
+  })
 
   useEffect(() => {
     if (!open) return
@@ -42,7 +52,7 @@ export function Modal({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onClose()
+        onCloseRef.current()
         return
       }
       if (event.key !== "Tab" || !panelRef.current) return
@@ -66,9 +76,15 @@ export function Modal({
 
     document.addEventListener("keydown", onKeyDown)
     const timer = window.setTimeout(() => {
-      const target = panelRef.current?.querySelector<HTMLElement>(
-        'input:not([type="hidden"]),select,textarea,button',
-      )
+      // Scoped to the body, and to form controls first. A bare
+      // querySelector over the panel returns the first match in *document*
+      // order, which is the close button in the header — so opening a dialog
+      // put the caret on "dismiss".
+      const content = contentRef.current
+      const target =
+        content?.querySelector<HTMLElement>(
+          'input:not([type="hidden"]):not([disabled]),select:not([disabled]),textarea:not([disabled])',
+        ) ?? content?.querySelector<HTMLElement>("button:not([disabled])")
       target?.focus()
     }, 60)
 
@@ -78,7 +94,7 @@ export function Modal({
       document.body.style.overflow = overflow
       restoreRef.current?.focus?.()
     }
-  }, [open, onClose])
+  }, [open])
 
   const widths = {
     sm: "sm:max-w-[400px]",
@@ -150,7 +166,10 @@ export function Modal({
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-2">
+            <div
+              ref={contentRef}
+              className="min-h-0 flex-1 overflow-y-auto px-6 pb-2"
+            >
               {children}
             </div>
 

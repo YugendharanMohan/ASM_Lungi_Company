@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils"
 export interface Segment<T extends string> {
   value: T
   label: string
+  /** Second line under the label — a time range, a unit, a qualifier. */
+  hint?: string
 }
 
 /**
@@ -64,7 +66,19 @@ export function SegmentedControl<T extends string>({
                 className="absolute inset-0 -z-10 rounded-[9px] bg-[var(--surface)] shadow-[var(--shadow-sm)]"
               />
             )}
-            {segment.label}
+            <span className="block">{segment.label}</span>
+            {segment.hint && (
+              <span
+                className={cn(
+                  "mt-0.5 block text-[10.5px] font-normal tabular-nums",
+                  active
+                    ? "text-[var(--text-secondary)]"
+                    : "text-[var(--text-tertiary)]",
+                )}
+              >
+                {segment.hint}
+              </span>
+            )}
           </button>
         )
       })}

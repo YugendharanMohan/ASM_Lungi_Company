@@ -1,4 +1,14 @@
 export type Shift = "DAY" | "NIGHT"
+
+/**
+ * When each shift runs. Both are twelve hours and the night shift crosses
+ * midnight, so an entry's date is the date the shift *started* — a night
+ * entry booked on the 5th covers 1 PM on the 5th to 1 AM on the 6th.
+ */
+export const SHIFT_HOURS: Record<Shift, string> = {
+  DAY: "1.00 AM – 1.00 PM",
+  NIGHT: "1.00 PM – 1.00 AM",
+}
 export type UserRole = "ADMIN" | "STAFF"
 
 /** Reed/pick count of the cloth. Each carries its own piece rate. */

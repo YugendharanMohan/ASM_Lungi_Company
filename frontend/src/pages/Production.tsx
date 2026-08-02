@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { useApi } from "@/hooks/useApi"
 import { api, ApiError } from "@/lib/api"
 import { formatCurrency, formatDate, formatMeters, todayISO } from "@/lib/format"
-import { PICK_TYPES } from "@/lib/types"
+import { PICK_TYPES, SHIFT_HOURS } from "@/lib/types"
 import type { Loom, PickType, ProductionEntry, Shift, Worker } from "@/lib/types"
 import { Button } from "@/ui/Button"
 import { Card, CardHeader } from "@/ui/Card"
@@ -345,8 +345,8 @@ export function Production() {
                 value={shift}
                 onChange={setShift}
                 segments={[
-                  { value: "DAY", label: "Day" },
-                  { value: "NIGHT", label: "Night" },
+                  { value: "DAY", label: "Day", hint: SHIFT_HOURS.DAY },
+                  { value: "NIGHT", label: "Night", hint: SHIFT_HOURS.NIGHT },
                 ]}
                 className="w-full"
               />
@@ -534,8 +534,8 @@ export function Production() {
                   value={edit.shift}
                   onChange={(value) => setEdit({ ...edit, shift: value })}
                   segments={[
-                    { value: "DAY", label: "Day" },
-                    { value: "NIGHT", label: "Night" },
+                    { value: "DAY", label: "Day", hint: SHIFT_HOURS.DAY },
+                    { value: "NIGHT", label: "Night", hint: SHIFT_HOURS.NIGHT },
                   ]}
                   className="w-full"
                 />
