@@ -64,13 +64,39 @@ export interface ProductionEntry {
   loom_label: string
 }
 
+/** Cloth leaves the mill in bundles; the count per bundle is fixed. */
+export const LUNGIS_PER_BUNDLE = 24
+
+/**
+ * Picks a consignment can contain — wider than the production `PickType`.
+ * Kambam 88x96 is its own line on the delivery note but is woven on the same
+ * setting, so the loom floor does not distinguish it.
+ */
+export type DispatchPick = "88x96" | "88x92" | "88x80" | "88x96 Kambam"
+
+export const DISPATCH_PICKS: DispatchPick[] = [
+  "88x96",
+  "88x92",
+  "88x80",
+  "88x96 Kambam",
+]
+
+export interface DispatchItem {
+  pick_type: DispatchPick
+  bundles: number
+  lungis: number
+}
+
 export interface Dispatch {
   id: number
   company_name: string
   dispatch_date: string
-  quantity: number
   remarks: string
   created_at: string
+  items: DispatchItem[]
+  total_bundles: number
+  /** Total pieces across every line. */
+  quantity: number
 }
 
 export interface SalaryRow {

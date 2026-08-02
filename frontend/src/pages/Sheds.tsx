@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { useMemo, useState, type FormEvent } from "react"
 import { motion } from "motion/react"
 import { Building2, Cog, MapPin, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -11,10 +11,16 @@ import { EmptyState, ErrorNote, Skeleton } from "@/ui/Feedback"
 import { Field } from "@/ui/Field"
 import { Modal } from "@/ui/Modal"
 import { PageHeader } from "@/ui/PageHeader"
+import { SearchInput } from "@/ui/SearchInput"
+import { SegmentedControl } from "@/ui/SegmentedControl"
 import { staggerChild, staggerParent } from "@/ui/motion"
+
+type ShedFilter = "all" | "with-looms" | "empty"
 
 export function Sheds() {
   const sheds = useApi<Shed[]>(() => api.get<Shed[]>("/sheds"))
+  const [query, setQuery] = useState("")
+  const [filter, setFilter] = useState<ShedFilter>("all")
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Shed | null>(null)
   const [name, setName] = useState("")
@@ -84,6 +90,27 @@ export function Sheds() {
     }
   }
 
+  const visible = useMemo(() => {
+    const rows = sheds.data ?? []
+    const q = query.trim().toLowerCase()
+    return rows.filter((shed) => {
+      // Matched against the displayed label, not the bare name. The card
+      // reads "Shed B" while the stored name is "B", so typing what is on
+      // screen would otherwise find nothing.
+      const matchesQuery =
+        !q ||
+        `shed ${shed.name}`.toLowerCase().includes(q) ||
+        shed.location.toLowerCase().includes(q)
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "with-looms" ? shed.loom_count > 0 : shed.loom_count === 0)
+      return matchesQuery && matchesFilter
+    })
+  }, [sheds.data, query, filter])
+
+  const hasSheds = (sheds.data?.length ?? 0) > 0
+  const filtered = query.trim() !== "" || filter !== "all"
+
   return (
     <div>
       <PageHeader
@@ -96,6 +123,32 @@ export function Sheds() {
         }
       />
 
+      {hasSheds && !sheds.loading && !sheds.error && (
+        <div className="mb-5 flex flex-wrap items-center gap-2.5">
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder="Search shed or location"
+            className="w-full sm:w-64"
+          />
+          <SegmentedControl
+            aria-label="Filter sheds"
+            value={filter}
+            onChange={setFilter}
+            segments={[
+              { value: "all", label: "All" },
+              { value: "with-looms", label: "With looms" },
+              { value: "empty", label: "Empty" },
+            ]}
+          />
+          {filtered && (
+            <p className="text-[12.5px] text-[var(--text-tertiary)]">
+              {visible.length} of {sheds.data?.length}
+            </p>
+          )}
+        </div>
+      )}
+
       {sheds.loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, index) => (
@@ -104,18 +157,37 @@ export function Sheds() {
         </div>
       ) : sheds.error ? (
         <ErrorNote message={sheds.error} onRetry={sheds.reload} />
-      ) : sheds.data?.length === 0 ? (
+      ) : visible.length === 0 ? (
         <div className="rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface)]">
-          <EmptyState
-            title="No sheds yet"
-            description="Add a shed (A, B, C…) before adding looms."
-            icon={<Building2 className="size-5" />}
-            action={
-              <Button onClick={openCreate} icon={<Plus className="size-4" />}>
-                Add shed
-              </Button>
-            }
-          />
+          {filtered ? (
+            <EmptyState
+              title="No matches"
+              description="No shed matches the current search and filter."
+              icon={<Building2 className="size-5" />}
+              action={
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setQuery("")
+                    setFilter("all")
+                  }}
+                >
+                  Clear filters
+                </Button>
+              }
+            />
+          ) : (
+            <EmptyState
+              title="No sheds yet"
+              description="Add a shed (A, B, C…) before adding looms."
+              icon={<Building2 className="size-5" />}
+              action={
+                <Button onClick={openCreate} icon={<Plus className="size-4" />}>
+                  Add shed
+                </Button>
+              }
+            />
+          )}
         </div>
       ) : (
         <motion.div
@@ -124,7 +196,7 @@ export function Sheds() {
           animate="visible"
           className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
         >
-          {(sheds.data ?? []).map((shed) => (
+          {visible.map((shed) => (
             <motion.article
               key={shed.id}
               variants={staggerChild}

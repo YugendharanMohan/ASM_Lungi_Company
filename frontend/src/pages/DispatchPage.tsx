@@ -5,27 +5,38 @@ import { toast } from "sonner"
 import { useApi } from "@/hooks/useApi"
 import { api, ApiError } from "@/lib/api"
 import { formatDate, formatNumber, todayISO } from "@/lib/format"
-import type { Dispatch } from "@/lib/types"
+import { DISPATCH_PICKS, LUNGIS_PER_BUNDLE } from "@/lib/types"
+import type { Dispatch, DispatchPick } from "@/lib/types"
 import { Button } from "@/ui/Button"
 import { DataTable, type Column } from "@/ui/DataTable"
 import { DateField } from "@/ui/DateField"
-import { ErrorNote } from "@/ui/Feedback"
+import { Badge, ErrorNote } from "@/ui/Feedback"
 import { Field } from "@/ui/Field"
 import { Modal } from "@/ui/Modal"
 import { PageHeader } from "@/ui/PageHeader"
 
+/** Bundle counts keyed by pick — "" means the pick is not on this consignment. */
+type BundleMap = Record<DispatchPick, string>
+
+const EMPTY_BUNDLES: BundleMap = {
+  "88x96": "",
+  "88x92": "",
+  "88x80": "",
+  "88x96 Kambam": "",
+}
+
 interface FormState {
   company_name: string
   dispatch_date: string
-  quantity: string
   remarks: string
+  bundles: BundleMap
 }
 
 const EMPTY: FormState = {
   company_name: "",
   dispatch_date: todayISO(),
-  quantity: "",
   remarks: "",
+  bundles: EMPTY_BUNDLES,
 }
 
 export function DispatchPage() {
@@ -35,50 +46,65 @@ export function DispatchPage() {
   const [form, setForm] = useState<FormState>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
-  const [fieldErrors, setFieldErrors] = useState<{
-    company?: string
-    quantity?: string
-  }>({})
+  const [companyError, setCompanyError] = useState("")
+
+  const totalBundles = DISPATCH_PICKS.reduce(
+    (sum, pick) => sum + (Number.parseInt(form.bundles[pick], 10) || 0),
+    0,
+  )
+  const totalLungis = totalBundles * LUNGIS_PER_BUNDLE
 
   function openCreate() {
     setEditing(null)
-    setForm(EMPTY)
+    setForm({ ...EMPTY, dispatch_date: todayISO(), bundles: EMPTY_BUNDLES })
     setError("")
-    setFieldErrors({})
+    setCompanyError("")
     setOpen(true)
   }
 
   function openEdit(dispatch: Dispatch) {
+    const bundles = { ...EMPTY_BUNDLES }
+    for (const item of dispatch.items) {
+      bundles[item.pick_type] = String(item.bundles)
+    }
     setEditing(dispatch)
     setForm({
       company_name: dispatch.company_name,
       dispatch_date: dispatch.dispatch_date,
-      quantity: String(dispatch.quantity),
       remarks: dispatch.remarks,
+      bundles,
     })
     setError("")
-    setFieldErrors({})
+    setCompanyError("")
     setOpen(true)
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
-    const next: typeof fieldErrors = {}
-    if (!form.company_name.trim()) next.company = "Enter the company name."
-    const quantity = Number.parseInt(form.quantity, 10)
-    if (!form.quantity.trim() || Number.isNaN(quantity))
-      next.quantity = "Enter how many lungis."
-    else if (quantity <= 0) next.quantity = "Must be more than zero."
-    setFieldErrors(next)
-    if (Object.keys(next).length) return
+    if (!form.company_name.trim()) {
+      setCompanyError("Enter the company name.")
+      return
+    }
+    if (totalBundles <= 0) {
+      setError("Enter bundles against at least one pick.")
+      return
+    }
 
     setError("")
     setSaving(true)
+
+    // Only picks with bundles are sent. The form shows all four, but most
+    // consignments use one or two.
+    const items = DISPATCH_PICKS.map((pick) => ({
+      pick_type: pick,
+      bundles: Number.parseInt(form.bundles[pick], 10) || 0,
+    })).filter((item) => item.bundles > 0)
+
     const payload = {
       company_name: form.company_name.trim(),
       dispatch_date: form.dispatch_date,
-      quantity,
       remarks: form.remarks.trim(),
+      items,
     }
 
     try {
@@ -88,7 +114,9 @@ export function DispatchPage() {
       } else {
         await api.post<Dispatch>("/dispatch", payload)
         toast.success(
-          `${formatNumber(payload.quantity)} lungis to ${payload.company_name}`,
+          `${totalBundles} bundles — ${formatNumber(totalLungis)} lungis to ${
+            payload.company_name
+          }`,
         )
       }
       setOpen(false)
@@ -143,6 +171,28 @@ export function DispatchPage() {
       render: (row) => <span className="font-medium">{row.company_name}</span>,
     },
     {
+      key: "picks",
+      header: "Picks",
+      render: (row) => (
+        <div className="flex flex-wrap gap-1">
+          {row.items.map((item) => (
+            <Badge key={item.pick_type}>
+              {item.pick_type} · {item.bundles}
+            </Badge>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: "bundles",
+      header: "Bundles",
+      align: "right",
+      sortValue: (row) => row.total_bundles,
+      render: (row) => (
+        <span className="tabular">{formatNumber(row.total_bundles)}</span>
+      ),
+    },
+    {
       key: "quantity",
       header: "Lungis",
       align: "right",
@@ -193,7 +243,7 @@ export function DispatchPage() {
     <div>
       <PageHeader
         title="Dispatch"
-        description="Lungis sent out to customer companies."
+        description={`Consignments go out as bundles of ${LUNGIS_PER_BUNDLE} lungis. Enter bundles per pick — the piece count follows.`}
         actions={
           <Button onClick={openCreate} icon={<Plus className="size-4" />}>
             Record dispatch
@@ -210,9 +260,10 @@ export function DispatchPage() {
         onRetry={dispatches.reload}
         searchable={(row, query) =>
           row.company_name.toLowerCase().includes(query) ||
-          row.remarks.toLowerCase().includes(query)
+          row.remarks.toLowerCase().includes(query) ||
+          row.items.some((item) => item.pick_type.toLowerCase().includes(query))
         }
-        searchPlaceholder="Search company or remarks"
+        searchPlaceholder="Search company, pick or remarks"
         pageSize={12}
         emptyTitle="No dispatches recorded"
         emptyDescription="Record a consignment to build up dispatch history."
@@ -222,7 +273,7 @@ export function DispatchPage() {
         open={open}
         onClose={() => setOpen(false)}
         title={editing ? "Edit dispatch" : "Record dispatch"}
-        description="Track what went out, to whom, and when."
+        description="Enter the number of bundles against each pick being sent."
         footer={
           <>
             <Button variant="secondary" onClick={() => setOpen(false)}>
@@ -243,32 +294,68 @@ export function DispatchPage() {
             label="Company name"
             icon={<Building2 className="size-[18px]" />}
             value={form.company_name}
-            error={fieldErrors.company}
+            error={companyError}
             onChange={(event) => {
               setForm({ ...form, company_name: event.target.value })
-              setFieldErrors((prev) => ({ ...prev, company: undefined }))
+              setCompanyError("")
             }}
           />
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <DateField
-              label="Dispatch date"
-              value={form.dispatch_date}
-              onChange={(value) => setForm({ ...form, dispatch_date: value })}
-            />
-            <Field
-              label="Number of lungis"
-              type="number"
-              min="1"
-              step="1"
-              icon={<Package className="size-[18px]" />}
-              value={form.quantity}
-              error={fieldErrors.quantity}
-              onChange={(event) => {
-                setForm({ ...form, quantity: event.target.value })
-                setFieldErrors((prev) => ({ ...prev, quantity: undefined }))
-              }}
-            />
+          <DateField
+            label="Dispatch date"
+            value={form.dispatch_date}
+            onChange={(value) => setForm({ ...form, dispatch_date: value })}
+          />
+
+          <div>
+            <p className="mb-2 pl-1 text-[12px] font-medium text-[var(--text-secondary)]">
+              Bundles by pick
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {DISPATCH_PICKS.map((pick) => {
+                const count = Number.parseInt(form.bundles[pick], 10) || 0
+                return (
+                  <Field
+                    key={pick}
+                    label={pick}
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    step="1"
+                    icon={<Package className="size-[18px]" />}
+                    value={form.bundles[pick]}
+                    // The piece count sits under the box it came from, so the
+                    // multiplication is visible where the operator typed
+                    // rather than only in a grand total further down.
+                    hint={
+                      count > 0
+                        ? `${formatNumber(count * LUNGIS_PER_BUNDLE)} lungis`
+                        : undefined
+                    }
+                    onChange={(event) => {
+                      setForm({
+                        ...form,
+                        bundles: {
+                          ...form.bundles,
+                          [pick]: event.target.value,
+                        },
+                      })
+                      setError("")
+                    }}
+                  />
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-[14px] bg-[var(--surface-sunken)] px-4 py-3.5">
+            <span className="text-[13.5px] text-[var(--text-secondary)]">
+              {formatNumber(totalBundles)} bundle
+              {totalBundles === 1 ? "" : "s"} × {LUNGIS_PER_BUNDLE}
+            </span>
+            <span className="tabular text-[19px] font-semibold tracking-[-0.02em]">
+              {formatNumber(totalLungis)} lungis
+            </span>
           </div>
 
           <Field

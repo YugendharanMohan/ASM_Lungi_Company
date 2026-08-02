@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
-import { Check, Gauge, Plus, Ruler, Trash2, User } from "lucide-react"
+import { Check, Gauge, Pencil, Plus, Ruler, Trash2, User } from "lucide-react"
 import { toast } from "sonner"
 
 import { useApi } from "@/hooks/useApi"
@@ -13,6 +13,7 @@ import { DataTable, type Column } from "@/ui/DataTable"
 import { DateField } from "@/ui/DateField"
 import { ErrorNote } from "@/ui/Feedback"
 import { Field } from "@/ui/Field"
+import { Modal } from "@/ui/Modal"
 import { PageHeader } from "@/ui/PageHeader"
 import { SegmentedControl } from "@/ui/SegmentedControl"
 import { SelectField } from "@/ui/SelectField"
@@ -22,6 +23,17 @@ interface FormErrors {
   loom?: string
   meters?: string
   rate?: string
+}
+
+interface EditState {
+  entry: ProductionEntry
+  entry_date: string
+  shift: Shift
+  pick_type: PickType
+  worker_id: string
+  loom_id: string
+  meters: string
+  rate: string
 }
 
 export function Production() {
@@ -35,6 +47,10 @@ export function Production() {
   const [errors, setErrors] = useState<FormErrors>({})
   const [formError, setFormError] = useState("")
   const [submitting, setSubmitting] = useState(false)
+
+  const [edit, setEdit] = useState<EditState | null>(null)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState("")
 
   const workers = useApi<Worker[]>(() =>
     api.get<Worker[]>("/workers", { active_only: true }),
@@ -110,6 +126,61 @@ export function Production() {
       )
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  function openEdit(entry: ProductionEntry) {
+    setEdit({
+      entry,
+      entry_date: entry.entry_date,
+      shift: entry.shift,
+      pick_type: entry.pick_type,
+      worker_id: String(entry.worker_id),
+      loom_id: String(entry.loom_id),
+      meters: String(entry.meters),
+      rate: String(entry.rate_per_meter),
+    })
+    setEditError("")
+  }
+
+  async function handleEditSave(event: FormEvent) {
+    event.preventDefault()
+    if (!edit) return
+
+    const meters = Number.parseFloat(edit.meters)
+    const rate = Number.parseFloat(edit.rate)
+    if (!(meters > 0) || !(rate > 0)) {
+      setEditError("Metres and rate must both be more than zero.")
+      return
+    }
+
+    setEditError("")
+    setEditSaving(true)
+    try {
+      await api.patch<ProductionEntry>(`/production/${edit.entry.id}`, {
+        entry_date: edit.entry_date,
+        shift: edit.shift,
+        pick_type: edit.pick_type,
+        worker_id: Number(edit.worker_id),
+        loom_id: Number(edit.loom_id),
+        meters,
+        rate_per_meter: rate,
+      })
+      toast.success("Entry updated", {
+        description: `${edit.entry.worker_name} · ${formatMeters(
+          meters,
+        )} · ${formatCurrency(meters * rate)}`,
+      })
+      setEdit(null)
+      entries.reload()
+    } catch (caught) {
+      setEditError(
+        caught instanceof ApiError
+          ? caught.message
+          : "Could not update the entry.",
+      )
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -213,17 +284,31 @@ export function Production() {
       header: "",
       align: "right",
       render: (row) => (
-        <button
-          type="button"
-          onClick={() => void handleDelete(row)}
-          aria-label={`Delete entry for ${row.worker_name}`}
-          className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] opacity-0 transition-all hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] focus-visible:opacity-100 group-hover:opacity-100"
-        >
-          <Trash2 className="size-4" />
-        </button>
+        <div className="flex justify-end gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={() => openEdit(row)}
+            aria-label={`Edit entry for ${row.worker_name}`}
+            className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-sunken)] hover:text-[var(--text)]"
+          >
+            <Pencil className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDelete(row)}
+            aria-label={`Delete entry for ${row.worker_name}`}
+            className="rounded-[8px] p-1.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
       ),
     },
   ]
+
+  const editTotal =
+    (Number.parseFloat(edit?.meters ?? "") || 0) *
+    (Number.parseFloat(edit?.rate ?? "") || 0)
 
   return (
     <div>
@@ -405,6 +490,133 @@ export function Production() {
           </div>
         </Card>
       </div>
+
+      <Modal
+        open={edit !== null}
+        onClose={() => setEdit(null)}
+        title="Edit entry"
+        description={
+          edit
+            ? `${edit.entry.worker_name} · originally ${edit.entry.loom_label}`
+            : undefined
+        }
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEdit(null)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="edit-entry-form" loading={editSaving}>
+              Save changes
+            </Button>
+          </>
+        }
+      >
+        {edit && (
+          <form
+            id="edit-entry-form"
+            onSubmit={handleEditSave}
+            className="space-y-4 pb-2"
+          >
+            <DateField
+              label="Date"
+              value={edit.entry_date}
+              max={todayISO()}
+              onChange={(value) => setEdit({ ...edit, entry_date: value })}
+            />
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="mb-2 pl-1 text-[12px] font-medium text-[var(--text-secondary)]">
+                  Shift
+                </p>
+                <SegmentedControl
+                  aria-label="Shift"
+                  value={edit.shift}
+                  onChange={(value) => setEdit({ ...edit, shift: value })}
+                  segments={[
+                    { value: "DAY", label: "Day" },
+                    { value: "NIGHT", label: "Night" },
+                  ]}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <p className="mb-2 pl-1 text-[12px] font-medium text-[var(--text-secondary)]">
+                  Pick
+                </p>
+                <SegmentedControl
+                  size="sm"
+                  aria-label="Pick type"
+                  value={edit.pick_type}
+                  onChange={(value) => setEdit({ ...edit, pick_type: value })}
+                  segments={PICK_TYPES.map((value) => ({ value, label: value }))}
+                  className="w-full"
+                />
+              </div>
+            </div>
+
+            <SelectField
+              label="Worker"
+              icon={<User className="size-[18px]" />}
+              value={edit.worker_id}
+              onChange={(value) => setEdit({ ...edit, worker_id: value })}
+              options={(workers.data ?? []).map((worker) => ({
+                value: String(worker.id),
+                label: worker.name,
+              }))}
+            />
+
+            <SelectField
+              label="Loom"
+              icon={<Gauge className="size-[18px]" />}
+              value={edit.loom_id}
+              onChange={(value) => setEdit({ ...edit, loom_id: value })}
+              options={(looms.data ?? []).map((loom) => ({
+                value: String(loom.id),
+                label: loom.label,
+              }))}
+            />
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label="Metres"
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                icon={<Ruler className="size-[18px]" />}
+                value={edit.meters}
+                onChange={(event) =>
+                  setEdit({ ...edit, meters: event.target.value })
+                }
+              />
+              <Field
+                label="Rate"
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                suffix="₹/m"
+                value={edit.rate}
+                onChange={(event) =>
+                  setEdit({ ...edit, rate: event.target.value })
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-[14px] bg-[var(--surface-sunken)] px-4 py-3.5">
+              <span className="text-[13.5px] text-[var(--text-secondary)]">
+                Total amount
+              </span>
+              <span className="tabular text-[19px] font-semibold tracking-[-0.02em]">
+                {formatCurrency(editTotal)}
+              </span>
+            </div>
+
+            {editError && <ErrorNote message={editError} />}
+          </form>
+        )}
+      </Modal>
     </div>
   )
 }

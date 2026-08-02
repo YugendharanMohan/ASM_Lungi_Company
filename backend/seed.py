@@ -15,7 +15,10 @@ from sqlalchemy import func, select
 
 from app.db.session import Base, SessionLocal, engine
 from app.models import (
+    LUNGIS_PER_BUNDLE,
     Dispatch,
+    DispatchItem,
+    DispatchPick,
     Loom,
     PickType,
     ProductionEntry,
@@ -177,11 +180,21 @@ def main() -> None:
                 )
                 if exists:
                     continue
+                # One to three picks per consignment, a handful of bundles
+                # each — the shape of a real delivery note.
+                items = [
+                    DispatchItem(pick_type=pick, bundles=rng.randint(2, 14))
+                    for pick in rng.sample(
+                        list(DispatchPick), k=rng.randint(1, 3)
+                    )
+                ]
                 db.add(
                     Dispatch(
                         company_name=company,
                         dispatch_date=day,
-                        quantity=rng.randint(120, 900),
+                        items=items,
+                        quantity=sum(i.bundles for i in items)
+                        * LUNGIS_PER_BUNDLE,
                         remarks=rng.choice(
                             ["", "Bulk order", "Repeat order", "Priority"]
                         ),

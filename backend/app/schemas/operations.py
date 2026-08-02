@@ -1,7 +1,8 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.models.dispatch import DispatchPick
 from app.models.production import PickType, Shift
 
 
@@ -47,22 +48,59 @@ class ProductionOut(ProductionBase):
 # --------------------------------------------------------------------------
 # Dispatch
 # --------------------------------------------------------------------------
+class DispatchItemIn(BaseModel):
+    pick_type: DispatchPick
+    bundles: int = Field(ge=0)
+
+
+class DispatchItemOut(DispatchItemIn):
+    model_config = ConfigDict(from_attributes=True)
+
+    #: bundles x LUNGIS_PER_BUNDLE, computed server-side so the delivery note
+    #: and the dashboard cannot disagree about what a bundle holds.
+    lungis: int
+
+
 class DispatchBase(BaseModel):
     company_name: str = Field(min_length=1, max_length=160)
     dispatch_date: date
-    quantity: int = Field(ge=0)
     remarks: str = ""
 
 
+def _validate_items(items: list[DispatchItemIn]) -> list[DispatchItemIn]:
+    picks = [item.pick_type for item in items]
+    if len(picks) != len(set(picks)):
+        raise ValueError("Each pick can only appear once on a dispatch.")
+    if sum(item.bundles for item in items) <= 0:
+        raise ValueError("A dispatch needs at least one bundle.")
+    # Zero-bundle lines are dropped rather than rejected: the form shows all
+    # four picks at once and most consignments only use one or two.
+    return [item for item in items if item.bundles > 0]
+
+
 class DispatchCreate(DispatchBase):
-    pass
+    items: list[DispatchItemIn] = Field(min_length=1)
+
+    @field_validator("items")
+    @classmethod
+    def check_items(cls, value: list[DispatchItemIn]) -> list[DispatchItemIn]:
+        return _validate_items(value)
 
 
 class DispatchUpdate(BaseModel):
     company_name: str | None = Field(default=None, min_length=1, max_length=160)
     dispatch_date: date | None = None
-    quantity: int | None = Field(default=None, ge=0)
     remarks: str | None = None
+    #: Sent whole or not at all — a partial list of lines has no sensible
+    #: meaning, since the absent picks could mean "unchanged" or "removed".
+    items: list[DispatchItemIn] | None = None
+
+    @field_validator("items")
+    @classmethod
+    def check_items(
+        cls, value: list[DispatchItemIn] | None
+    ) -> list[DispatchItemIn] | None:
+        return None if value is None else _validate_items(value)
 
 
 class DispatchOut(DispatchBase):
@@ -70,6 +108,10 @@ class DispatchOut(DispatchBase):
 
     id: int
     created_at: datetime
+    items: list[DispatchItemOut]
+    total_bundles: int
+    #: Total pieces across every line.
+    quantity: int
 
 
 # --------------------------------------------------------------------------

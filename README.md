@@ -10,12 +10,12 @@ React + TypeScript + Vite + Tailwind + shadcn/ui · FastAPI · PostgreSQL · Fir
 
 | Area | Detail |
 |---|---|
-| **Daily entry** | Date, shift, **pick** (88x96 / 88x92 / 88x80), worker, loom, metres, rate. Total is calculated. Any worker can be booked to any loom. One entry per worker + loom + date + shift, enforced by a database constraint. |
+| **Daily entry** | Date, shift, **pick** (88x96 / 88x92 / 88x80), worker, loom, metres, rate. Total is calculated. Any worker can be booked to any loom. Entries can be edited or deleted. One entry per worker + loom + date + shift, enforced by a database constraint. |
 | **Workers** | Name, phone, shed, rate per metre, active flag. Searchable list. Workers are **not** tied to a loom — that is recorded per entry. |
-| **Sheds** | Add, edit, delete. Each shed holds many looms. |
+| **Sheds** | Add, edit, delete, with search and an all / with-looms / empty filter. |
 | **Looms** | Belong to one shed. Change the shed to move a loom. Numbers are plain (1, 2, 3) and unique within a shed; displayed everywhere as `Shed - Loom`, e.g. `AA - 3`. |
-| **Salary** | Any **from / to** period, plus this-week and this-month presets. Per-worker **PDF receipt** with a day × loom grid and a rate-by-rate breakdown. CSV export. |
-| **Dispatch** | Company, date, number of lungis, remarks, with full history. |
+| **Salary** | Any **from / to** period, plus this-week and this-month presets. Per-worker **PDF receipt** with a day × loom grid and a rate-by-rate breakdown, always on one A4 sheet. CSV export. |
+| **Dispatch** | Company, date, remarks, and **bundles per pick**. Cloth goes out in bundles of 24, so bundles are what gets typed and the piece count is derived. |
 | **Overview** | Today's production, active workers, active looms, weekly salary, weekly dispatch, 7-day chart. |
 | **User access** | Admin-only. There is no public sign-up. |
 
@@ -37,6 +37,19 @@ TOTAL           1181.3  10,714.57
 ```
 
 Those lines sum to the amount due, so the person being paid can check it.
+
+Dispatch counts picks separately too, with one extra: **88x96 Kambam**. It is
+its own line on the delivery note but is woven on the same setting, so the loom
+floor never sees it — which is why dispatch and production have separate pick
+lists rather than one shared enum.
+
+### Bundles
+
+Cloth leaves the mill in bundles of **24**, never as loose pieces. Bundles per
+pick are what gets typed; the piece count is derived and stored so the
+dashboard can still sum it in SQL. That total is written in exactly one place
+in the dispatch route, which is what keeps it from drifting away from the lines
+it summarises.
 
 ---
 
@@ -215,6 +228,12 @@ Two decisions worth knowing:
 - **Receipts are rendered server-side** (reportlab), so the slip a worker is
   handed is identical whoever prints it rather than depending on a browser's
   print dialog.
+- **The receipt fits one A4 sheet by measuring, not by guessing.** It is laid
+  out at the largest of five type scales that measures small enough to fit, so
+  a week prints large and a month prints smaller instead of spilling onto a
+  second page. (Note for anyone touching it: reportlab keeps a table cell's
+  leading at 12pt unless `LEADING` is set alongside `FONTSIZE`, so shrinking
+  the font alone does nothing to row height.)
 - **Duplicate entries are blocked by a unique constraint**, not a check-then-
   insert in the route — two simultaneous submissions would both pass a check.
 - **Deleting a worker or loom that has production history is refused** (409).

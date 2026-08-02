@@ -177,6 +177,13 @@ def update_production(
         fields.get("loom_id", entry.loom_id),
     )
 
+    # Same guard as create: an edit is another way to reach a future date.
+    if fields.get("entry_date", entry.entry_date) > date.today():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Production cannot be recorded for a future date.",
+        )
+
     for key, value in fields.items():
         setattr(entry, key, value)
 
