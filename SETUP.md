@@ -129,16 +129,26 @@ anything. Access control is entirely server-side.
 downloads a JSON file. Unlike the values above, **this one is a secret** — it
 can mint tokens for any user in your project.
 
-**Save it outside the repo**, e.g. `~/asm-firebase-key.json`, then in
-`backend/.env`:
+**Save it outside the repo**, readable only by you:
+
+```bash
+mkdir -p ~/.config/asm-lungi-works && chmod 700 ~/.config/asm-lungi-works
+mv ~/Downloads/YOUR-PROJECT-firebase-adminsdk-*.json ~/.config/asm-lungi-works/firebase-adminsdk.json
+chmod 600 ~/.config/asm-lungi-works/firebase-adminsdk.json
+```
+
+Then in `backend/.env`, using the **absolute** path — `~` is not expanded
+inside a `.env` file:
 
 ```
-FIREBASE_CREDENTIALS_FILE=/Users/you/asm-firebase-key.json
+FIREBASE_CREDENTIALS_FILE=/Users/you/.config/asm-lungi-works/firebase-adminsdk.json
 ```
 
-`.gitignore` already covers `*serviceAccount*.json` and
-`firebase-adminsdk*.json`, but a file with any other name would be committed.
-Keeping it outside the project removes the question.
+Two reasons for the fuss. `.gitignore` covers `*serviceAccount*.json` and
+`firebase-adminsdk*.json`, but that protection is filename-dependent — rename
+the file and the next `git add -A` commits your private key. And the browser
+saves downloads world-readable (`-rw-r--r--`), so on a shared machine any other
+account could read it; `chmod 600` fixes that.
 
 ### 2f. Turn authentication on
 
