@@ -1,9 +1,14 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+# Environment variables set by hosting platforms, not by us. Their presence
+# means the process is deployed, whatever the config file claims.
+HOSTED_MARKERS = ("RENDER", "FLY_APP_NAME", "DYNO", "K_SERVICE", "WEBSITE_INSTANCE_ID")
 
 
 class Settings(BaseSettings):
@@ -58,6 +63,25 @@ class Settings(BaseSettings):
             for e in self.bootstrap_admin_emails.split(",")
             if e.strip()
         ]
+
+    @property
+    def is_hosted(self) -> bool:
+        """True when a hosting platform's own env vars are present."""
+        return any(os.environ.get(marker) for marker in HOSTED_MARKERS)
+
+    def assert_safe(self) -> None:
+        """Refuse to run with authentication disabled on a deployed host.
+
+        A warning in the log is not enough protection for wage records: nobody
+        reads startup logs, and the failure is silent and total — every route
+        served as admin to anyone who finds the URL. Better to not boot.
+        """
+        if self.auth_dev_bypass and self.is_hosted:
+            raise RuntimeError(
+                "AUTH_DEV_BYPASS=true on a hosted environment. This disables "
+                "authentication entirely. Set AUTH_DEV_BYPASS=false and supply "
+                "Firebase credentials."
+            )
 
 
 @lru_cache

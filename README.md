@@ -89,6 +89,19 @@ Open <http://localhost:5173>. A red banner shows while auth is disabled.
 
 ## Going live
 
+**See [SETUP.md](SETUP.md) for the full walkthrough**, then verify with:
+
+```bash
+cd backend && ./.venv/bin/python check_setup.py
+```
+
+That reports every piece of configuration as ok / warn / FAIL with the exact
+remedy — database reachability, migration state, service account validity, and
+whether the frontend and backend point at the same Firebase project (a mismatch
+otherwise shows up as a login that succeeds and then fails on every request).
+
+The short version follows.
+
 ### Step 1 — Firebase
 
 1. Create a project at <https://console.firebase.google.com>.
@@ -119,7 +132,20 @@ credentials under **Firebase Console → Authentication → Users**.
 
 ### Step 3 — Database
 
-Local Postgres:
+**Postgres, not Firestore.** Firebase handles identity; Postgres holds the
+records. Wages need exact decimals (`Numeric`, not float64), the duplicate-entry
+guard is a unique constraint, and salary reports are `SUM ... GROUP BY` over a
+date range — Firestore offers none of those, and would bill per document read
+for every report.
+
+Hosted: [Neon](https://neon.tech) has a free tier that does not expire. Paste
+its connection string into `DATABASE_URL` as-is; the `postgres://` and
+`postgresql://` prefixes are both rewritten onto psycopg v3 automatically.
+
+> Render's free Postgres is **deleted after 30 days**. Don't put wage records
+> on it — use Neon, or Render's paid tier which includes backups.
+
+Local Postgres instead:
 
 ```bash
 createdb asm_lungi
@@ -166,8 +192,10 @@ versus "ask an admin for access" — but the client checks are cosmetic. The
 server decides.
 
 `AUTH_DEV_BYPASS=true` skips all of it and treats every caller as an admin. It
-logs a warning on every request and paints a red banner in the UI. **Never set
-it on a deployed environment.**
+logs a warning on every request and paints a red banner in the UI. It also
+**refuses to start** when a hosting platform's own environment variables are
+present (`RENDER`, `FLY_APP_NAME`, `DYNO`, and similar) — a warning in a log
+nobody reads is not adequate protection for wage records.
 
 ---
 

@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    # Raises rather than warns: authentication disabled on a deployed host is
+    # not something to log and carry on from.
+    settings.assert_safe()
+
     # create_all is enough for SQLite dev. Postgres deployments run Alembic
     # (`alembic upgrade head`) so schema changes are versioned and reviewable.
     if settings.is_sqlite:
