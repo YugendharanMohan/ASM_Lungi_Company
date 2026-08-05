@@ -18,23 +18,36 @@ what you record. Wages need exact decimals, unique constraints and `SUM ...
 GROUP BY` over date ranges — Firestore has none of those, and the backend is
 already built on SQLAlchemy against Postgres.
 
-### Recommended: Neon (free, does not expire)
+### Supabase
 
-1. Sign up at <https://neon.tech> and create a project.
-2. Copy the connection string. It looks like:
+1. Sign up at <https://supabase.com>, create a project, and save the database
+   password it gives you — it is shown once.
+2. **Project settings → Database → Connection string**. You will see three
+   options, and the difference matters:
+
+   | Mode | Port | Use for |
+   |---|---|---|
+   | Direct connection | 5432 | Nothing here — IPv6-only on new projects, so IPv4-only hosts (including Render's free tier) cannot reach it. |
+   | **Session pooler** | 5432 | **Migrations** |
+   | **Transaction pooler** | 6543 | **The app** |
+
+3. Put both in `backend/.env` — same string, different ports:
 
    ```
-   postgresql://user:PASSWORD@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+   DATABASE_URL=postgresql://postgres.PROJECT:PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres
+   DATABASE_MIGRATION_URL=postgresql://postgres.PROJECT:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
    ```
 
-3. Put it in `backend/.env`:
+   Paste them exactly as the dashboard gives them; the `postgresql://` prefix
+   is rewritten onto the psycopg v3 driver automatically.
 
-   ```
-   DATABASE_URL=postgresql://user:PASSWORD@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
-   ```
-
-   The `postgresql://` prefix is rewritten onto the psycopg v3 driver
-   automatically — paste it exactly as the dashboard gives it.
+   Why two: Alembic needs session state and advisory locks that the transaction
+   pooler does not provide, so migrations would hang or half-apply. The app
+   wants the transaction pooler because it scales to more concurrent requests.
+   The app connection also disables prepared statements automatically — psycopg
+   promotes a query to a prepared statement after five runs, and behind a
+   transaction pooler the PREPARE and EXECUTE land on different backends, so
+   common queries start failing only once the app has been up a while.
 
 4. Create the schema:
 
@@ -42,12 +55,30 @@ already built on SQLAlchemy against Postgres.
    cd backend && ./.venv/bin/alembic upgrade head
    ```
 
-> **Avoid Render's free Postgres for this.** Render deletes free databases
-> after 30 days. These are wage records. Either use Neon, or pay for Render's
-> $7/month tier, which includes backups.
+#### The migration that closes Supabase's REST API
 
-Do **not** run `seed.py` against the real database unless you want twelve
-fictional workers in your records.
+Supabase runs **PostgREST** over the `public` schema and grants the `anon` role
+access to tables created there. The anon key is published in client code by
+design. On an untouched project that means worker names, phone numbers and wage
+rates are readable — and writable — by anyone who has it.
+
+This app never uses PostgREST; it connects as `postgres` and authenticates
+through Firebase. Migration `9a1c7f3d5e20` shuts that door: row-level security
+on with no policies, and the `anon`/`authenticated` grants revoked, including
+default privileges so later tables start locked too. The app is unaffected
+because it connects as the table owner, which bypasses RLS.
+
+`check_setup.py` verifies this, so you can confirm it on your own project:
+
+```
+[  ok  ] Tables closed to the REST API   RLS on, no anon/authenticated grants.
+```
+
+If you ever add tables outside Alembic, re-run the checker — it lists any table
+left without RLS.
+
+> Do **not** run `seed.py` against the real database unless you want twelve
+> fictional workers in your records.
 
 ---
 
@@ -165,6 +196,9 @@ appear. Sign in, and add everyone else from **User Access** in the app.
 | "Not been granted access" (403) | Signed in successfully, but no `users` row. Check `BOOTSTRAP_ADMIN_EMAILS` matches the address exactly. |
 | "Email address is not verified" (403) | Working as intended. Open the verification link. |
 | Login works, then every request fails | Frontend and backend are on different Firebase projects. The checker catches this. |
+| `prepared statement "..." already exists` | App is on the transaction pooler without prepared statements disabled. Confirm `DATABASE_URL` really ends in `:6543` — detection keys off the port. |
+| Migrations hang or half-apply | Alembic is running against the transaction pooler. Set `DATABASE_MIGRATION_URL` to the session pooler (port 5432). |
+| Cannot connect from Render | Using Supabase's direct connection, which is IPv6-only. Switch to a pooler URL. |
 
 ---
 

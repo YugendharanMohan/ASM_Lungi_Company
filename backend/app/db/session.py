@@ -10,13 +10,35 @@ class Base(DeclarativeBase):
     pass
 
 
-# SQLite needs check_same_thread off because FastAPI serves requests from a
-# threadpool; Postgres wants a pre-ping so Render's idle connection recycling
-# does not surface as a dead-connection error on the first query after a lull.
+def _connect_args() -> dict:
+    # SQLite needs check_same_thread off because FastAPI serves requests from a
+    # threadpool.
+    if settings.is_sqlite:
+        return {"check_same_thread": False}
+
+    if settings.is_transaction_pooler:
+        # psycopg3 promotes a query to a server-side prepared statement after
+        # five executions. Behind a transaction-mode pooler each execution can
+        # land on a different backend, so the PREPARE and the EXECUTE end up on
+        # different connections and every repeated query starts failing with
+        # "prepared statement ... already exists". It only appears once a query
+        # has run a handful of times, which means it surfaces in production
+        # rather than in a smoke test. None disables preparing entirely.
+        return {"prepare_threshold": None}
+
+    return {}
+
+
+# pool_pre_ping so a connection dropped during an idle period surfaces as a
+# reconnect rather than an error on the first query after the lull — both
+# Supabase and Render recycle idle connections aggressively.
 engine = create_engine(
     settings.sqlalchemy_url,
-    connect_args={"check_same_thread": False} if settings.is_sqlite else {},
+    connect_args=_connect_args(),
     pool_pre_ping=not settings.is_sqlite,
+    # Supabase's free tier allows relatively few direct connections; a large
+    # idle pool can exhaust them across restarts and parallel workers.
+    **({} if settings.is_sqlite else {"pool_size": 5, "max_overflow": 5}),
 )
 
 if settings.is_sqlite:

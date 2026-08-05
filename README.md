@@ -138,12 +138,23 @@ guard is a unique constraint, and salary reports are `SUM ... GROUP BY` over a
 date range — Firestore offers none of those, and would bill per document read
 for every report.
 
-Hosted: [Neon](https://neon.tech) has a free tier that does not expire. Paste
-its connection string into `DATABASE_URL` as-is; the `postgres://` and
-`postgresql://` prefixes are both rewritten onto psycopg v3 automatically.
+Hosted on **Supabase** — see [SETUP.md](SETUP.md) for the connection strings.
+Two things there are not optional:
+
+- **Two URLs, not one.** `DATABASE_URL` is the transaction pooler (`:6543`) for
+  the app; `DATABASE_MIGRATION_URL` is the session pooler (`:5432`) for Alembic,
+  which needs session state the transaction pooler cannot hold. The app
+  connection also disables psycopg's prepared statements, which otherwise break
+  behind a transaction pooler after a query has run a few times.
+- **Migration `9a1c7f3d5e20` must be applied.** Supabase serves PostgREST over
+  the `public` schema and grants the `anon` role — whose key is published in
+  client code — access to tables created there. Untouched, that exposes worker
+  names, phone numbers and wage rates for reading *and writing*. The migration
+  enables RLS with no policies and revokes those grants. `check_setup.py`
+  verifies it.
 
 > Render's free Postgres is **deleted after 30 days**. Don't put wage records
-> on it — use Neon, or Render's paid tier which includes backups.
+> on it.
 
 Local Postgres instead:
 

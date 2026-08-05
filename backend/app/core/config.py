@@ -20,6 +20,11 @@ class Settings(BaseSettings):
 
     app_name: str = "ASM Lungi Works API"
     database_url: str = ""
+    #: Optional separate URL for Alembic. Supabase's transaction pooler cannot
+    #: run migrations reliably (no session state, no advisory locks), so point
+    #: this at the session pooler while the app itself uses the transaction
+    #: pooler. Falls back to database_url when unset.
+    database_migration_url: str = ""
 
     firebase_credentials_file: str = ""
     firebase_credentials_json: str = ""
@@ -42,15 +47,41 @@ class Settings(BaseSettings):
         url = self.database_url.strip()
         if not url:
             return f"sqlite:///{BACKEND_DIR / 'asm_dev.db'}"
+        return self._normalise(url)
+
+    def _normalise(self, url: str) -> str:
+        url = url.strip()
         if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql+psycopg://", 1)
-        elif url.startswith("postgresql://"):
-            url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+            return url.replace("postgres://", "postgresql+psycopg://", 1)
+        if url.startswith("postgresql://"):
+            return url.replace("postgresql://", "postgresql+psycopg://", 1)
         return url
+
+    @property
+    def migration_url(self) -> str:
+        """URL Alembic should use — the session pooler on Supabase."""
+        explicit = self._normalise(self.database_migration_url)
+        return explicit or self.sqlalchemy_url
 
     @property
     def is_sqlite(self) -> bool:
         return self.sqlalchemy_url.startswith("sqlite")
+
+    @property
+    def is_transaction_pooler(self) -> bool:
+        """True for a PgBouncer-style transaction-mode pooler.
+
+        Port 6543 is Supabase's convention for it. Transaction mode hands out a
+        different backend per statement, so server-side prepared statements —
+        which psycopg3 starts using automatically after a few repeats of the
+        same query — fail with "prepared statement already exists" once traffic
+        picks up. Detected here so the driver can be told not to prepare.
+        """
+        return ":6543" in self.sqlalchemy_url
+
+    @property
+    def is_supabase(self) -> bool:
+        return "supabase" in self.sqlalchemy_url
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -13,13 +13,17 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url)
+# migration_url, not sqlalchemy_url: on Supabase the app runs through the
+# transaction pooler, which cannot hold the session state and advisory
+# locks Alembic needs. DATABASE_MIGRATION_URL points at the session pooler
+# and falls back to the app URL when unset.
+config.set_main_option("sqlalchemy.url", settings.migration_url)
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.sqlalchemy_url,
+        url=settings.migration_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

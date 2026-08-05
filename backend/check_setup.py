@@ -71,9 +71,37 @@ def check_database(settings) -> None:
         )
     else:
         # Credentials are in the URL, so only the shape is echoed.
-        driver = url.split("://", 1)[0]
         host = url.split("@")[-1].split("/")[0] if "@" in url else "?"
-        record(PASS, "Database: Postgres", f"{driver} → {host}")
+        label = "Supabase" if settings.is_supabase else "Postgres"
+        record(PASS, f"Database: {label}", host)
+
+    if settings.is_supabase:
+        if "db." in url and ".supabase.co" in url:
+            record(
+                WARN,
+                "Using Supabase's direct connection",
+                host,
+                "Direct connections are IPv6-only on new projects, so an "
+                "IPv4-only host (Render's free tier among them) cannot reach "
+                "them. Prefer the pooler URLs from Project settings → Database "
+                "→ Connection pooling.",
+            )
+        if settings.is_transaction_pooler:
+            record(
+                PASS,
+                "Transaction pooler detected",
+                "Prepared statements disabled for psycopg.",
+            )
+            if not settings.database_migration_url.strip():
+                record(
+                    WARN,
+                    "No separate migration URL",
+                    "DATABASE_MIGRATION_URL is unset.",
+                    "Alembic needs session state and advisory locks that the "
+                    "transaction pooler (port 6543) does not provide. Set "
+                    "DATABASE_MIGRATION_URL to the session pooler URL (same "
+                    "host, port 5432).",
+                )
 
     try:
         from sqlalchemy import inspect, text
@@ -144,8 +172,72 @@ def check_database(settings) -> None:
             )
         else:
             record(PASS, "Schema complete", f"{len(expected)} tables present.")
+
+        check_table_exposure(engine, expected)
     except Exception as exc:  # noqa: BLE001
         record(WARN, "Could not inspect schema", str(exc)[:160])
+
+
+def check_table_exposure(engine, expected: set[str]) -> None:
+    """On Postgres, confirm nothing is reachable through an auto REST API.
+
+    Supabase runs PostgREST over the public schema and grants the anon role —
+    whose key ships in client code — access to tables created there. This app
+    never uses that path, so both RLS and the grants are checked.
+    """
+    from sqlalchemy import text
+
+    if engine.dialect.name != "postgresql":
+        return
+
+    with engine.connect() as conn:
+        unprotected = [
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT relname FROM pg_class c "
+                    "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = 'public' AND c.relkind = 'r' "
+                    "AND NOT c.relrowsecurity"
+                )
+            )
+            if row[0] in expected
+        ]
+
+        granted = [
+            f"{row[0]} → {row[1]}"
+            for row in conn.execute(
+                text(
+                    "SELECT table_name, grantee FROM information_schema.role_table_grants "
+                    "WHERE table_schema = 'public' "
+                    "AND grantee IN ('anon', 'authenticated')"
+                )
+            )
+        ]
+
+    if unprotected:
+        record(
+            FAIL,
+            "Tables readable via Supabase's REST API",
+            "No row-level security on: " + ", ".join(sorted(unprotected)),
+            "Run: ./.venv/bin/alembic upgrade head — migration 9a1c7f3d5e20 "
+            "enables RLS and revokes the anon grants. Without it, worker names, "
+            "phone numbers and wage rates are readable, and writable, by anyone "
+            "holding the project's publishable anon key.",
+        )
+    elif granted:
+        record(
+            FAIL,
+            "anon/authenticated still hold grants",
+            ", ".join(granted[:4]) + ("…" if len(granted) > 4 else ""),
+            "Run: ./.venv/bin/alembic upgrade head",
+        )
+    else:
+        record(
+            PASS,
+            "Tables closed to the REST API",
+            "RLS on, no anon/authenticated grants.",
+        )
 
 
 # ---------------------------------------------------------------------------
