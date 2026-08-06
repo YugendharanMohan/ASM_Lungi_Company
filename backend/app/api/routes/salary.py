@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
-from app.core.labels import loom_label
+from app.core.labels import loom_label, loom_label_sort_key
 from app.core.periods import resolve_period
 from app.core.receipt_pdf import render_receipt_pdf
 from app.db.session import get_db
@@ -165,12 +165,7 @@ def _build_receipt(
         bucket["amount"] += float(meters or 0) * rate_value
         bucket["picks"].add(pick_type.value)
 
-    def sort_key(label: str) -> tuple:
-        shed, _, loom = label.partition(" - ")
-        # Numeric looms sort 1, 2, 10 rather than 1, 10, 2.
-        return (shed, int(loom) if loom.isdigit() else 10**9, loom)
-
-    loom_labels = sorted(labels, key=sort_key)
+    loom_labels = sorted(labels, key=loom_label_sort_key)
 
     rows = [
         ReceiptRow(

@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_admin
-from app.core.labels import loom_label
+from app.core.labels import loom_label, loom_sort_key
 from app.db.session import get_db
 from app.models import Loom, ProductionEntry, Shed
 from app.schemas.masters import LoomCreate, LoomOut, LoomUpdate
@@ -61,8 +61,13 @@ def list_looms(
     stmt = select(Loom, Shed.name).join(Shed, Loom.shed_id == Shed.id)
     if shed_id is not None:
         stmt = stmt.where(Loom.shed_id == shed_id)
-    stmt = stmt.order_by(Shed.name, Loom.loom_number)
-    return [_to_out(loom, name) for loom, name in db.execute(stmt).all()]
+    # Ordered in Python, not SQL: loom_number is text, so ORDER BY sorts it
+    # lexicographically and puts A - 10 before A - 2.
+    rows = sorted(
+        db.execute(stmt).all(),
+        key=lambda row: loom_sort_key(row[1], row[0].loom_number),
+    )
+    return [_to_out(loom, name) for loom, name in rows]
 
 
 @router.post("", response_model=LoomOut, status_code=status.HTTP_201_CREATED)

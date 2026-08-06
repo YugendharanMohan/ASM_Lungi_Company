@@ -3,6 +3,7 @@ import { Cog, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { useApi } from "@/hooks/useApi"
+import { loomSortKey } from "@/lib/looms"
 import { api, ApiError } from "@/lib/api"
 import type { Loom, Shed } from "@/lib/types"
 import { Button } from "@/ui/Button"
@@ -110,7 +111,7 @@ export function Looms() {
     {
       key: "label",
       header: "Loom",
-      sortValue: (row) => `${row.shed_name}-${row.loom_number.padStart(4, "0")}`,
+      sortValue: (row) => loomSortKey(row.shed_name, row.loom_number),
       render: (row) => <span className="font-medium">{row.label}</span>,
     },
     {

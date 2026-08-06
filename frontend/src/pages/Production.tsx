@@ -3,6 +3,7 @@ import { Check, Gauge, Pencil, Plus, Ruler, Trash2, User } from "lucide-react"
 import { toast } from "sonner"
 
 import { useApi } from "@/hooks/useApi"
+import { loomLabelSortKey } from "@/lib/looms"
 import { api, ApiError } from "@/lib/api"
 import { formatCurrency, formatDate, formatMeters, todayISO } from "@/lib/format"
 import { PICK_TYPES, SHIFT_HOURS } from "@/lib/types"
@@ -222,7 +223,7 @@ export function Production() {
     {
       key: "loom",
       header: "Loom",
-      sortValue: (row) => row.loom_label,
+      sortValue: (row) => loomLabelSortKey(row.loom_label),
       render: (row) => (
         <span className="text-[var(--text-secondary)]">{row.loom_label}</span>
       ),
