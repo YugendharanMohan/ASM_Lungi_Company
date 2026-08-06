@@ -140,11 +140,34 @@ def get_current_user(
     # Bind the Firebase uid on first sight so the account is traceable even if
     # the email is later changed in the console.
     uid = claims.get("uid") or claims.get("user_id")
+    now = datetime.now(timezone.utc)
+
+    dirty = False
     if uid and user.firebase_uid != uid:
         user.firebase_uid = uid
-    user.last_login_at = datetime.now(timezone.utc)
-    db.commit()
-    db.refresh(user)
+        dirty = True
+
+    # last_login_at is a "last seen" marker, so it is only rewritten once it
+    # has gone stale. Updating it on every request cost an UPDATE and a COMMIT
+    # round-trip to the database each time — around 220ms against a hosted
+    # Postgres, spent on a field nobody reads to the second.
+    last = user.last_login_at
+    if last is not None and last.tzinfo is None:
+        # SQLite hands back naive datetimes; compare like with like.
+        last = last.replace(tzinfo=timezone.utc)
+    if (
+        last is None
+        or (now - last).total_seconds() >= settings.last_seen_refresh_seconds
+    ):
+        user.last_login_at = now
+        dirty = True
+
+    if dirty:
+        db.commit()
+    else:
+        # Nothing to persist. Release the transaction the SELECT opened rather
+        # than leaving it idle for the rest of the request.
+        db.rollback()
 
     return user
 

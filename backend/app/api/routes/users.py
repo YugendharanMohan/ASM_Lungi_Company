@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core import firebase
 from app.core.deps import get_current_user, require_admin
 from app.db.session import get_db
 from app.models import User, UserRole
@@ -99,6 +100,10 @@ def update_user(
 
     db.commit()
     db.refresh(user)
+    # Deactivating here is enforced from our own table on the next request, so
+    # it bites immediately. Dropping the cached revocation timestamp as well
+    # means a simultaneous disable on the Firebase side is not masked by it.
+    firebase.forget_revocation_cache(user.firebase_uid)
     return user
 
 
@@ -117,5 +122,7 @@ def delete_user(
             detail="You cannot remove your own account.",
         )
 
+    uid = user.firebase_uid
     db.delete(user)
     db.commit()
+    firebase.forget_revocation_cache(uid)

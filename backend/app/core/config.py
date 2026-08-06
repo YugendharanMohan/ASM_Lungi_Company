@@ -33,6 +33,18 @@ class Settings(BaseSettings):
     auth_dev_bypass: bool = False
     bootstrap_admin_emails: str = ""
 
+    #: How often to ask Firebase whether a token has been revoked, per user.
+    #: Doing it on every request costs a round-trip to Google — measured at
+    #: ~600ms, which was the single largest component of request latency.
+    #: Deactivating someone in *this* app still takes effect immediately; this
+    #: only delays noticing a revocation made on the Firebase side.
+    auth_revocation_check_seconds: int = 300
+
+    #: How stale ``last_login_at`` may get before it is rewritten. It is a
+    #: "last seen" marker, so minute precision is ample, and writing it on
+    #: every request cost an UPDATE plus COMMIT round-trip each time.
+    last_seen_refresh_seconds: int = 300
+
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     @property
