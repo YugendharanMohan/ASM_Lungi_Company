@@ -1,38 +1,57 @@
-# Render blueprint. Point Render at this repo and it provisions both the API
-# and its database. Secrets marked sync:false must be entered in the Render
-# dashboard — they are deliberately not stored in this file.
+# Render blueprint. Point Render at this repo and it provisions the API.
+#
+# No database is declared here: the app runs on Supabase, so Render only hosts
+# the web service. Every value marked sync:false is entered in the Render
+# dashboard and deliberately never stored in this file.
 services:
   - type: web
     name: asm-api
     runtime: python
     rootDir: backend
-    plan: free
+    # Singapore is the closest region Render offers to Supabase's ap-south-1
+    # (Mumbai). Each request makes several database round-trips, so hosting
+    # the API in Oregon or Frankfurt would add hundreds of milliseconds to
+    # every page — the distance costs far more than the compute.
+    region: singapore
+    # Free instances sleep after 15 minutes idle and take 30-60s to wake. For
+    # a tool someone opens a few times a day that means a cold start almost
+    # every time, so this is on the paid tier deliberately.
+    plan: starter
     buildCommand: pip install -r requirements.txt
     # Migrations run at release, not build: the build step has no database
-    # attached, and running them in the start command would re-run on every
-    # autoscale or restart.
+    # attached, and putting them in the start command would re-run them on
+    # every restart and autoscale.
     preDeployCommand: alembic upgrade head
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.2"
+
+      # Supabase TRANSACTION pooler, port 6543. Not the direct connection —
+      # that is IPv6-only and unreachable from Render.
       - key: DATABASE_URL
-        fromDatabase:
-          name: asm-db
-          property: connectionString
-      - key: AUTH_DEV_BYPASS
-        value: "false"
+        sync: false
+      # Supabase SESSION pooler, port 5432. Alembic needs session state and
+      # advisory locks that the transaction pooler cannot hold, so
+      # preDeployCommand above would hang or half-apply without this.
+      - key: DATABASE_MIGRATION_URL
+        sync: false
+
       - key: FIREBASE_PROJECT_ID
         sync: false
+      # The whole service-account JSON on one line.
       - key: FIREBASE_CREDENTIALS_JSON
         sync: false
       - key: BOOTSTRAP_ADMIN_EMAILS
         sync: false
-      # Your Vercel URL, e.g. https://asm-lungi.vercel.app
+
+      # Your Vercel URL, e.g. https://asm-lungi.vercel.app — no trailing slash.
       - key: CORS_ORIGINS
         sync: false
 
-databases:
-  - name: asm-db
-    plan: free
+      # Never true on a deployed environment. app/main.py refuses to start if
+      # it finds this on while a hosting platform is detected; it is set here
+      # explicitly so nobody has to wonder.
+      - key: AUTH_DEV_BYPASS
+        value: "false"
