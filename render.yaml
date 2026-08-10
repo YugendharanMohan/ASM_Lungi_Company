@@ -1,8 +1,11 @@
 # Render blueprint. Point Render at this repo and it provisions the API.
 #
-# No database is declared here: the app runs on Supabase, so Render only hosts
-# the web service. Every value marked sync:false is entered in the Render
-# dashboard and deliberately never stored in this file.
+# Only the API lives here. The frontend is on Vercel — declaring it here too
+# would build the same site twice and leave two live URLs drifting apart.
+#
+# No database is declared either: the app runs on Supabase, so Render hosts
+# nothing but the web service. Every value marked sync:false is entered in the
+# Render dashboard and deliberately never stored in this file.
 services:
   - type: web
     name: asm-api
@@ -13,15 +16,26 @@ services:
     # the API in Oregon or Frankfurt would add hundreds of milliseconds to
     # every page — the distance costs far more than the compute.
     region: singapore
-    # Free instances sleep after 15 minutes idle and take 30-60s to wake. For
-    # a tool someone opens a few times a day that means a cold start almost
-    # every time, so this is on the paid tier deliberately.
-    plan: starter
-    buildCommand: pip install -r requirements.txt
-    # Migrations run at release, not build: the build step has no database
-    # attached, and putting them in the start command would re-run them on
-    # every restart and autoscale.
-    preDeployCommand: alembic upgrade head
+    # Free instances sleep after 15 minutes without an inbound request and
+    # take about a minute to wake. .github/workflows/keep-alive.yml pings
+    # /api/health every 10 minutes to prevent that.
+    #
+    # The budget is 750 instance-hours per workspace per calendar month, and
+    # staying awake around the clock costs ~744 in a 31-day month. That is the
+    # entire allowance for the whole workspace, not just this service: spin up
+    # a second free service and Render suspends BOTH until the month rolls
+    # over. Moving to `starter` removes the limit, the sleeping, and the need
+    # for the keep-alive workflow at once.
+    plan: free
+    # Migrations belong in preDeployCommand — it runs once per deploy, after
+    # the build and before traffic shifts. That field is paid-only, so on the
+    # free tier they ride along with the build instead. Two consequences worth
+    # knowing: this runs on every build even when nothing changed (harmless,
+    # `upgrade head` is a no-op when already current), and the schema migrates
+    # before the new code is confirmed good, so a failed deploy leaves a
+    # migrated database serving the previous release. Keep migrations
+    # backwards-compatible with the running version and that stays safe.
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
     envVars:
@@ -33,8 +47,8 @@ services:
       - key: DATABASE_URL
         sync: false
       # Supabase SESSION pooler, port 5432. Alembic needs session state and
-      # advisory locks that the transaction pooler cannot hold, so
-      # preDeployCommand above would hang or half-apply without this.
+      # advisory locks that the transaction pooler cannot hold, so the
+      # migration step above would hang or half-apply without this.
       - key: DATABASE_MIGRATION_URL
         sync: false
 
@@ -46,7 +60,10 @@ services:
       - key: BOOTSTRAP_ADMIN_EMAILS
         sync: false
 
-      # Your Vercel URL, e.g. https://asm-lungi.vercel.app — no trailing slash.
+      # The Vercel URL, no trailing slash:
+      #   https://asm-lungi-company.vercel.app
+      # Vercel also gives every deploy its own preview hostname, which this
+      # does not cover — preview builds will fail CORS against this API.
       - key: CORS_ORIGINS
         sync: false
 
@@ -55,44 +72,3 @@ services:
       # explicitly so nobody has to wonder.
       - key: AUTH_DEV_BYPASS
         value: "false"
-
-  - type: web
-    name: asm-web
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm ci && npm run build
-    staticPublishPath: dist
-    # The app routes on the client, so a visitor loading /salary directly — or
-    # refreshing anywhere other than the home page — asks the server for a file
-    # that does not exist. Without this rewrite that is a 404; with it, every
-    # path serves index.html and the router takes over.
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    headers:
-      - path: /assets/*
-        name: Cache-Control
-        # Vite fingerprints these filenames, so a changed file is a changed URL
-        # and the old one can be cached indefinitely.
-        value: public, max-age=31536000, immutable
-    envVars:
-      # The API's URL. Vite inlines this at BUILD time, so changing it needs a
-      # redeploy — restarting is not enough. Deploy the API first so this can
-      # be set correctly the first time.
-      - key: VITE_API_BASE_URL
-        sync: false
-      # Firebase web config. Public by design — it ships inside the JS bundle
-      # and only identifies the project. Access is decided by the backend.
-      - key: VITE_FIREBASE_API_KEY
-        sync: false
-      - key: VITE_FIREBASE_AUTH_DOMAIN
-        sync: false
-      - key: VITE_FIREBASE_PROJECT_ID
-        sync: false
-      - key: VITE_FIREBASE_STORAGE_BUCKET
-        sync: false
-      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
-        sync: false
-      - key: VITE_FIREBASE_APP_ID
-        sync: false
