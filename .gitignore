@@ -16,6 +16,13 @@ build/
 *serviceAccount*.json
 firebase-adminsdk*.json
 
+# MCP server config. Holds no credentials — the Supabase server authenticates
+# over OAuth per machine — but it does name the project, and this repository is
+# public. Nothing is shared by committing it, since every developer has to run
+# the OAuth flow themselves anyway. Delete this line if you would rather the
+# config travelled with the repo.
+.mcp.json
+
 # Local dev database
 *.db
 *.sqlite3
