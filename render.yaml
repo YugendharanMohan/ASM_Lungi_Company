@@ -55,3 +55,44 @@ services:
       # explicitly so nobody has to wonder.
       - key: AUTH_DEV_BYPASS
         value: "false"
+
+  - type: web
+    name: asm-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    # The app routes on the client, so a visitor loading /salary directly — or
+    # refreshing anywhere other than the home page — asks the server for a file
+    # that does not exist. Without this rewrite that is a 404; with it, every
+    # path serves index.html and the router takes over.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        # Vite fingerprints these filenames, so a changed file is a changed URL
+        # and the old one can be cached indefinitely.
+        value: public, max-age=31536000, immutable
+    envVars:
+      # The API's URL. Vite inlines this at BUILD time, so changing it needs a
+      # redeploy — restarting is not enough. Deploy the API first so this can
+      # be set correctly the first time.
+      - key: VITE_API_BASE_URL
+        sync: false
+      # Firebase web config. Public by design — it ships inside the JS bundle
+      # and only identifies the project. Access is decided by the backend.
+      - key: VITE_FIREBASE_API_KEY
+        sync: false
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: VITE_FIREBASE_PROJECT_ID
+        sync: false
+      - key: VITE_FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
+        sync: false
+      - key: VITE_FIREBASE_APP_ID
+        sync: false
