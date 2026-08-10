@@ -1,8 +1,11 @@
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
@@ -97,7 +100,29 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        """Allowed browser origins, normalised.
+
+        A browser sends a full origin — scheme, host and port — and the
+        comparison is an exact string match. So "example.com" or a trailing
+        slash matches nothing, and the failure is invisible from the server
+        side: the request simply arrives and is refused, and the browser
+        reports it to the user as the network being down. Both mistakes are
+        repaired here, loudly, rather than being left to look like an outage.
+        """
+        origins: list[str] = []
+        for raw in self.cors_origins.split(","):
+            origin = raw.strip().rstrip("/")
+            if not origin:
+                continue
+            if "://" not in origin:
+                logger.warning(
+                    "CORS_ORIGINS entry %r has no scheme; assuming https://. "
+                    "Set the full origin to silence this.",
+                    origin,
+                )
+                origin = f"https://{origin}"
+            origins.append(origin)
+        return origins
 
     @property
     def bootstrap_admin_list(self) -> list[str]:
