@@ -40,15 +40,36 @@ def _to_out(dispatch: Dispatch) -> DispatchOut:
 
 
 def _replace_items(dispatch: Dispatch, items: list[DispatchItemIn]) -> None:
-    """Swap the lines wholesale and re-derive the piece count.
+    """Reconcile the lines against what was sent, and re-derive the count.
+
+    Rows are matched by pick and updated in place rather than the collection
+    being replaced wholesale. Replacing it looks tidier but does not work: the
+    old rows are marked for deletion while the new ones are marked for insert,
+    and SQLAlchemy emits the INSERTs first within a flush. The new row then
+    collides with the old one on uq_dispatch_pick, which has not been deleted
+    yet, and every edit that keeps a pick fails with a unique violation.
+
+    Reconciling never inserts a (dispatch_id, pick_type) that is already
+    present, so the ordering stops mattering. It also leaves the row ids alone,
+    so an edit does not churn the primary keys of lines that did not change.
 
     The stored ``quantity`` is only ever written here, so it cannot fall out of
     step with the lines it summarises.
     """
-    dispatch.items = [
-        DispatchItem(pick_type=item.pick_type, bundles=item.bundles)
-        for item in items
-    ]
+    wanted = {item.pick_type: item.bundles for item in items}
+
+    for existing in list(dispatch.items):
+        if existing.pick_type in wanted:
+            existing.bundles = wanted.pop(existing.pick_type)
+        else:
+            # Removed from the consignment; delete-orphan takes it from here.
+            dispatch.items.remove(existing)
+
+    for pick_type, bundles in wanted.items():
+        dispatch.items.append(
+            DispatchItem(pick_type=pick_type, bundles=bundles)
+        )
+
     dispatch.quantity = (
         sum(item.bundles for item in items) * LUNGIS_PER_BUNDLE
     )

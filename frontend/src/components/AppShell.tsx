@@ -65,9 +65,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const nav = isAdmin
     ? [
-        ...NAV,
-        { to: "/users", label: "User Access", short: "Access", icon: UserCog },
-      ]
+      ...NAV,
+      { to: "/users", label: "User Access", short: "Access", icon: UserCog },
+    ]
     : NAV
 
   const primary = nav.slice(0, MOBILE_PRIMARY)
@@ -100,7 +100,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="min-w-0">
             <p className="truncate text-[14px] font-semibold tracking-[-0.01em]">
-              ASM Lungi Works
+              ASM Lungi Company
             </p>
             <p className="truncate text-[11.5px] text-[var(--text-tertiary)]">
               Production &amp; wages
@@ -149,7 +149,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           A
         </div>
         <p className="flex-1 truncate text-[15px] font-semibold tracking-[-0.01em]">
-          {current?.label ?? "ASM Lungi Works"}
+          {current?.label ?? "ASM Lungi Compamy"}
         </p>
         <button
           type="button"
