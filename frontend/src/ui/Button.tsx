@@ -10,7 +10,7 @@ import { Loader2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-type Variant = "primary" | "secondary" | "ghost" | "danger"
+type Variant = "primary" | "secondary" | "ghost" | "danger" | "destructive"
 type Size = "sm" | "md" | "lg"
 
 interface Ripple {
@@ -28,6 +28,12 @@ const VARIANTS: Record<Variant, string> = {
     "bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text)]",
   danger:
     "bg-[var(--danger-soft)] text-[var(--danger)] hover:bg-[var(--danger)] hover:text-white",
+  // Solid from the start, for the confirming button in a delete dialog. The
+  // soft `danger` above is for a delete affordance sitting in a row of other
+  // controls, where shouting would be wrong; once the dialog is open, the
+  // destructive action IS the primary action and should look like it.
+  destructive:
+    "bg-[var(--danger)] text-white hover:brightness-110 shadow-[var(--shadow-sm)]",
 }
 
 const SIZES: Record<Size, string> = {

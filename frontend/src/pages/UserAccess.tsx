@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { useAuth } from "@/contexts/AuthContext"
 import { useApi } from "@/hooks/useApi"
+import { useConfirm } from "@/ui/ConfirmDialog"
 import { api, ApiError } from "@/lib/api"
 import { formatDate } from "@/lib/format"
 import type { AppUser, UserRole } from "@/lib/types"
@@ -17,6 +18,7 @@ import { SegmentedControl } from "@/ui/SegmentedControl"
 import { SelectField } from "@/ui/SelectField"
 
 export function UserAccess() {
+  const confirm = useConfirm()
   const { user: currentUser } = useAuth()
   const users = useApi<AppUser[]>(() => api.get<AppUser[]>("/users"))
 
@@ -72,7 +74,12 @@ export function UserAccess() {
   }
 
   async function handleDelete(target: AppUser) {
-    if (!window.confirm(`Remove access for ${target.email}?`)) return
+    const ok = await confirm({
+      title: "Remove access?",
+      message: `${target.email} will no longer be able to sign in. Their Firebase account is untouched — you can grant access again later.`,
+      confirmLabel: "Remove access",
+    })
+    if (!ok) return
     try {
       await api.delete(`/users/${target.id}`)
       toast.success("Access removed")

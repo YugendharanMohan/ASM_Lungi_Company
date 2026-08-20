@@ -3,6 +3,7 @@ import { IndianRupee, Pencil, Phone, Plus, Trash2, User } from "lucide-react"
 import { toast } from "sonner"
 
 import { useApi } from "@/hooks/useApi"
+import { useConfirm } from "@/ui/ConfirmDialog"
 import { api, ApiError } from "@/lib/api"
 import { formatCurrency } from "@/lib/format"
 import type { Shed, Worker } from "@/lib/types"
@@ -34,6 +35,7 @@ const EMPTY: FormState = {
 }
 
 export function Workers() {
+  const confirm = useConfirm()
   const workers = useApi<Worker[]>(() => api.get<Worker[]>("/workers"))
   const sheds = useApi<Shed[]>(() => api.get<Shed[]>("/sheds"))
 
@@ -103,7 +105,12 @@ export function Workers() {
   }
 
   async function handleDelete(worker: Worker) {
-    if (!window.confirm(`Delete ${worker.name}?`)) return
+    const ok = await confirm({
+      title: `Delete ${worker.name}?`,
+      message:
+        "Their production history is kept — the worker is only removed from the list. Deactivate instead if they may return.",
+    })
+    if (!ok) return
     try {
       await api.delete(`/workers/${worker.id}`)
       toast.success(`${worker.name} deleted`)

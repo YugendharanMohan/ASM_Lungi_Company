@@ -4,6 +4,7 @@ import { Building2, Cog, MapPin, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { useApi } from "@/hooks/useApi"
+import { useConfirm } from "@/ui/ConfirmDialog"
 import { api, ApiError } from "@/lib/api"
 import type { Shed } from "@/lib/types"
 import { Button } from "@/ui/Button"
@@ -18,6 +19,7 @@ import { staggerChild, staggerParent } from "@/ui/motion"
 type ShedFilter = "all" | "with-looms" | "empty"
 
 export function Sheds() {
+  const confirm = useConfirm()
   const sheds = useApi<Shed[]>(() => api.get<Shed[]>("/sheds"))
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState<ShedFilter>("all")
@@ -77,7 +79,14 @@ export function Sheds() {
   }
 
   async function handleDelete(shed: Shed) {
-    if (!window.confirm(`Delete shed ${shed.name}?`)) return
+    const ok = await confirm({
+      title: `Delete shed ${shed.name}?`,
+      message:
+        shed.loom_count > 0
+          ? `This shed still holds ${shed.loom_count} loom${shed.loom_count === 1 ? "" : "s"}. Move or delete them first.`
+          : "This cannot be undone.",
+    })
+    if (!ok) return
     try {
       await api.delete(`/sheds/${shed.id}`)
       toast.success(`Shed ${shed.name} deleted`)

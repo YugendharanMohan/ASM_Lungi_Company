@@ -3,6 +3,7 @@ import { Check, Gauge, Pencil, Plus, Ruler, Trash2, User } from "lucide-react"
 import { toast } from "sonner"
 
 import { useApi } from "@/hooks/useApi"
+import { useConfirm } from "@/ui/ConfirmDialog"
 import { loomLabelSortKey } from "@/lib/looms"
 import { api, ApiError } from "@/lib/api"
 import { formatCurrency, formatDate, formatMeters, todayISO } from "@/lib/format"
@@ -38,6 +39,7 @@ interface EditState {
 }
 
 export function Production() {
+  const confirm = useConfirm()
   const [entryDate, setEntryDate] = useState(todayISO())
   const [shift, setShift] = useState<Shift>("DAY")
   const [pick, setPick] = useState<PickType>("88x96")
@@ -186,14 +188,11 @@ export function Production() {
   }
 
   async function handleDelete(entry: ProductionEntry) {
-    if (
-      !window.confirm(
-        `Delete ${entry.worker_name}'s ${entry.shift.toLowerCase()} entry of ${formatMeters(
-          entry.meters,
-        )}?`,
-      )
-    )
-      return
+    const ok = await confirm({
+      title: `Delete ${entry.worker_name}'s entry?`,
+      message: `${formatMeters(entry.meters)} on ${entry.loom_label}, ${entry.shift === "DAY" ? "day" : "night"} shift, worth ${formatCurrency(entry.total_amount)}.`,
+    })
+    if (!ok) return
     try {
       await api.delete(`/production/${entry.id}`)
       toast.success("Entry deleted")

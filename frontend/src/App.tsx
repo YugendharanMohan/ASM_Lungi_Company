@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react"
 import { Toaster } from "sonner"
 
 import { AppShell } from "@/components/AppShell"
+import { ConfirmProvider } from "@/ui/ConfirmDialog"
 import { AuthProvider, useAuth } from "@/contexts/AuthContext"
 import { AccessDenied } from "@/pages/AccessDenied"
 import { Login } from "@/pages/Login"
@@ -68,11 +69,15 @@ function AuthGate() {
     <Routes>
       <Route
         element={
-          <AppShell>
-            <Suspense fallback={<Spinner />}>
-              <Outlet />
-            </Suspense>
-          </AppShell>
+          // ConfirmProvider sits inside the shell so its dialog renders above
+          // the app chrome and every screen can reach useConfirm().
+          <ConfirmProvider>
+            <AppShell>
+              <Suspense fallback={<Spinner />}>
+                <Outlet />
+              </Suspense>
+            </AppShell>
+          </ConfirmProvider>
         }
       >
         <Route index element={<Overview />} />

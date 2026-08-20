@@ -3,6 +3,7 @@ import { Cog, Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { useApi } from "@/hooks/useApi"
+import { useConfirm } from "@/ui/ConfirmDialog"
 import { loomSortKey } from "@/lib/looms"
 import { api, ApiError } from "@/lib/api"
 import type { Loom, Shed } from "@/lib/types"
@@ -16,6 +17,7 @@ import { SelectField } from "@/ui/SelectField"
 import { Switch } from "@/ui/Switch"
 
 export function Looms() {
+  const confirm = useConfirm()
   const sheds = useApi<Shed[]>(() => api.get<Shed[]>("/sheds"))
   const looms = useApi<Loom[]>(() => api.get<Loom[]>("/looms"))
 
@@ -93,7 +95,12 @@ export function Looms() {
   }
 
   async function handleDelete(loom: Loom) {
-    if (!window.confirm(`Delete loom ${loom.label}?`)) return
+    const ok = await confirm({
+      title: `Delete loom ${loom.label}?`,
+      message:
+        "Production already recorded against this loom keeps it from being deleted. Mark it idle instead to take it out of use.",
+    })
+    if (!ok) return
     try {
       await api.delete(`/looms/${loom.id}`)
       toast.success("Loom deleted")

@@ -3,6 +3,7 @@ import { Building2, Package, Pencil, Plus, Trash2, Truck } from "lucide-react"
 import { toast } from "sonner"
 
 import { useApi } from "@/hooks/useApi"
+import { useConfirm } from "@/ui/ConfirmDialog"
 import { api, ApiError } from "@/lib/api"
 import { formatDate, formatNumber, todayISO } from "@/lib/format"
 import { DISPATCH_PICKS, LUNGIS_PER_BUNDLE } from "@/lib/types"
@@ -40,6 +41,7 @@ const EMPTY: FormState = {
 }
 
 export function DispatchPage() {
+  const confirm = useConfirm()
   const dispatches = useApi<Dispatch[]>(() => api.get<Dispatch[]>("/dispatch"))
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Dispatch | null>(null)
@@ -133,14 +135,11 @@ export function DispatchPage() {
   }
 
   async function handleDelete(dispatch: Dispatch) {
-    if (
-      !window.confirm(
-        `Delete the ${formatDate(dispatch.dispatch_date)} dispatch to ${
-          dispatch.company_name
-        }?`,
-      )
-    )
-      return
+    const ok = await confirm({
+      title: `Delete the ${formatDate(dispatch.dispatch_date)} dispatch?`,
+      message: `${formatNumber(dispatch.quantity)} lungis to ${dispatch.company_name} will be removed from the records.`,
+    })
+    if (!ok) return
     try {
       await api.delete(`/dispatch/${dispatch.id}`)
       toast.success("Dispatch deleted")
