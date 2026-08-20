@@ -21,7 +21,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "ASM Lungi Works API"
+    app_name: str = "ASM Lungi Company API"
     database_url: str = ""
     #: Optional separate URL for Alembic. Supabase's transaction pooler cannot
     #: run migrations reliably (no session state, no advisory locks), so point

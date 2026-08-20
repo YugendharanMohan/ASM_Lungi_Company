@@ -76,7 +76,7 @@ export function Login() {
 
   return (
     <AuthCanvas
-      title="ASM Lungi Works"
+      title="ASM Lungi Company"
       subtitle="Sign in to record production and wages"
     >
       {error && <ErrorNote message={error} />}

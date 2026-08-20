@@ -413,7 +413,7 @@ def render_receipt_pdf(receipt: SalaryReceipt) -> bytes:
         topMargin=MARGIN,
         bottomMargin=MARGIN,
         title=f"Salary receipt — {receipt.worker_name}",
-        author="ASM Lungi Works",
+        author="ASM Lungi Company",
     )
     # An explicit zero-padded frame, so the space measured above is exactly the
     # space available. SimpleDocTemplate adds 6pt of frame padding per side,

@@ -19,6 +19,7 @@ import type { LucideIcon } from "lucide-react"
 
 import { useAuth } from "@/contexts/AuthContext"
 import { cn } from "@/lib/utils"
+import { Logo } from "@/ui/Logo"
 import { pageVariants } from "@/ui/motion"
 
 interface NavItem {
@@ -95,9 +96,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       >
         <div className="flex items-center gap-3 px-5 pb-2 pt-6">
-          <div className="flex size-9 items-center justify-center rounded-[11px] bg-[var(--accent)] text-[15px] font-semibold text-white">
-            A
-          </div>
+          <Logo className="size-9" />
           <div className="min-w-0">
             <p className="truncate text-[14px] font-semibold tracking-[-0.01em]">
               ASM Lungi Company
@@ -145,11 +144,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           devMode && "top-[30px]",
         )}
       >
-        <div className="flex size-7 items-center justify-center rounded-[9px] bg-[var(--accent)] text-[12px] font-semibold text-white">
-          A
-        </div>
+        <Logo className="size-7" />
         <p className="flex-1 truncate text-[15px] font-semibold tracking-[-0.01em]">
-          {current?.label ?? "ASM Lungi Compamy"}
+          {current?.label ?? "ASM Lungi Company"}
         </p>
         <button
           type="button"

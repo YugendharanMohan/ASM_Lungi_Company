@@ -460,7 +460,7 @@ def main() -> int:
         return 2
 
     print()
-    print(f"  ASM Lungi Works — setup check   ({BACKEND_DIR})")
+    print(f"  ASM Lungi Company — setup check   ({BACKEND_DIR})")
     if settings.is_hosted:
         markers = [m for m in os.environ if m in {"RENDER", "FLY_APP_NAME", "DYNO"}]
         print(f"  Hosted environment detected: {', '.join(markers) or 'yes'}")

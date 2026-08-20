@@ -2,9 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- PNG rather than the previous SVG: the logo is supplied as artwork, and
+         two sizes are given so the browser picks one instead of downscaling a
+         512px image into a 16px tab slot. -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <!-- The logo is light-on-transparent, so the browser UI it tints should
+         stay light too; a dark theme-color would frame it against near-black. -->
+    <meta name="theme-color" content="#F5F5F7" />
+    <meta
+      name="description"
+      content="Production, wages and dispatch tracking for ASM Lungi Company."
+    />
+    <title>ASM Lungi Company</title>
   </head>
   <body>
     <div id="root"></div>
