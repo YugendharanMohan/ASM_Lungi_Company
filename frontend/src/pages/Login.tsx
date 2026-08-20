@@ -3,6 +3,7 @@ import { motion } from "motion/react"
 import { KeyRound, Lock, Mail } from "lucide-react"
 
 import { useAuth } from "@/contexts/AuthContext"
+import { isNative } from "@/lib/native"
 import { Button } from "@/ui/Button"
 import { ErrorNote } from "@/ui/Feedback"
 import { Field } from "@/ui/Field"
@@ -87,25 +88,33 @@ export function Login() {
         </p>
       )}
 
-      <Button
-        variant="secondary"
-        size="lg"
-        fullWidth
-        loading={busy === "google"}
-        disabled={busy !== ""}
-        onClick={() => void run("google", signInWithGoogle)}
-        icon={busy === "google" ? undefined : <GoogleMark />}
-      >
-        Continue with Google
-      </Button>
+      {/* Google refuses OAuth from an embedded WebView, so this button cannot
+          work inside the Android app — it would open a page that immediately
+          errors with disallowed_useragent. Hidden there rather than left to
+          fail, since a button that never works is worse than no button. */}
+      {!isNative && (
+        <>
+          <Button
+            variant="secondary"
+            size="lg"
+            fullWidth
+            loading={busy === "google"}
+            disabled={busy !== ""}
+            onClick={() => void run("google", signInWithGoogle)}
+            icon={busy === "google" ? undefined : <GoogleMark />}
+          >
+            Continue with Google
+          </Button>
 
-      <div className="flex items-center gap-3 py-1">
-        <span className="h-px flex-1 bg-[var(--border-subtle)]" />
-        <span className="text-[11.5px] font-medium uppercase tracking-[0.07em] text-[var(--text-tertiary)]">
-          or
-        </span>
-        <span className="h-px flex-1 bg-[var(--border-subtle)]" />
-      </div>
+          <div className="flex items-center gap-3 py-1">
+            <span className="h-px flex-1 bg-[var(--border-subtle)]" />
+            <span className="text-[11.5px] font-medium uppercase tracking-[0.07em] text-[var(--text-tertiary)]">
+              or
+            </span>
+            <span className="h-px flex-1 bg-[var(--border-subtle)]" />
+          </div>
+        </>
+      )}
 
       <form onSubmit={handlePasswordSignIn} className="space-y-3">
         <Field

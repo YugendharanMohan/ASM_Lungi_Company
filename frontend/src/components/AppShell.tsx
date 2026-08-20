@@ -18,6 +18,7 @@ import {
 import type { LucideIcon } from "lucide-react"
 
 import { useAuth } from "@/contexts/AuthContext"
+import { useTheme } from "@/contexts/ThemeContext"
 import { cn } from "@/lib/utils"
 import { Logo } from "@/ui/Logo"
 import { pageVariants } from "@/ui/motion"
@@ -43,21 +44,6 @@ const NAV: NavItem[] = [
 /** Only five fit a phone tab bar before the labels start truncating. */
 const MOBILE_PRIMARY = 4
 
-function useTheme() {
-  const [dark, setDark] = useState(() => {
-    const stored = localStorage.getItem("asm-theme")
-    if (stored) return stored === "dark"
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-  })
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark)
-    localStorage.setItem("asm-theme", dark ? "dark" : "light")
-  }, [dark])
-
-  return { dark, toggle: () => setDark((value) => !value) }
-}
-
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, isAdmin, devMode, logout } = useAuth()
   const { dark, toggle } = useTheme()
@@ -82,7 +68,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh bg-[var(--bg)]">
       {devMode && (
-        <div className="relative z-50 bg-[var(--danger)] px-4 py-1.5 text-center text-[12.5px] font-medium text-white">
+        <div className="safe-top relative z-50 bg-[var(--danger)] px-4 py-1.5 text-center text-[12.5px] font-medium text-white">
           Development mode — authentication is disabled
         </div>
       )}
@@ -140,7 +126,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* ---------------- Mobile top bar ---------------- */}
       <header
         className={cn(
-          "glass sticky top-0 z-40 flex h-14 items-center gap-3 border-b px-4 lg:hidden",
+          "glass safe-top sticky top-0 z-40 flex h-14 items-center gap-3 border-b px-4 lg:hidden",
           devMode && "top-[30px]",
         )}
       >

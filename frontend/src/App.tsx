@@ -4,8 +4,10 @@ import { Loader2 } from "lucide-react"
 import { Toaster } from "sonner"
 
 import { AppShell } from "@/components/AppShell"
+import { useNativeShell } from "@/hooks/useNativeShell"
 import { ConfirmProvider } from "@/ui/ConfirmDialog"
 import { AuthProvider, useAuth } from "@/contexts/AuthContext"
+import { ThemeProvider } from "@/contexts/ThemeContext"
 import { AccessDenied } from "@/pages/AccessDenied"
 import { Login } from "@/pages/Login"
 import { VerifyEmail } from "@/pages/VerifyEmail"
@@ -59,6 +61,9 @@ function Spinner({ full = false }: { full?: boolean }) {
  */
 function AuthGate() {
   const { status, isAdmin } = useAuth()
+  // No-op in the browser; wires the Android back button, status bar
+  // and splash screen when running in the APK.
+  useNativeShell()
 
   if (status === "loading") return <Spinner full />
   if (status === "signed-out") return <Login />
@@ -99,24 +104,26 @@ function AuthGate() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <AuthGate />
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            style: {
-              background: "var(--glass)",
-              backdropFilter: "saturate(180%) blur(20px)",
-              border: "1px solid var(--border-subtle)",
-              borderRadius: "14px",
-              color: "var(--text)",
-              boxShadow: "var(--shadow-md)",
-              fontSize: "13.5px",
-            },
-          }}
-        />
-      </BrowserRouter>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <AuthGate />
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              style: {
+                background: "var(--glass)",
+                backdropFilter: "saturate(180%) blur(20px)",
+                border: "1px solid var(--border-subtle)",
+                borderRadius: "14px",
+                color: "var(--text)",
+                boxShadow: "var(--shadow-md)",
+                fontSize: "13.5px",
+              },
+            }}
+          />
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeProvider>
   )
 }

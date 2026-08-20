@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The mark is navy-on-transparent, so it needs a light ground. Left as
+         the platform default it would sit on whatever the launcher picks,
+         which on a dark theme swallows the lettering. -->
+    <color name="ic_launcher_background">#FFFFFF</color>
+</resources>

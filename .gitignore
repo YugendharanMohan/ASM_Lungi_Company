@@ -36,3 +36,16 @@ firebase-adminsdk*.json
 # Logs
 *.log
 npm-debug.log*
+
+# Android / Capacitor build output. The native project itself IS committed —
+# it holds the icons, manifest and gradle config — but not what Gradle
+# regenerates, and never the signing key.
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/.gradle/
+frontend/android/local.properties
+frontend/android/keystore.properties
+frontend/android/app/src/main/assets/public/
+*.jks
+*.keystore
+*.apk

@@ -10,7 +10,15 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover is required for env(safe-area-inset-*) to report
+         real values. Android 15+ draws apps edge-to-edge, so without it
+         the header sits under the status bar and the tab bar under the
+         gesture pill. Harmless in a desktop browser, where the insets
+         are all zero. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <!-- The logo is light-on-transparent, so the browser UI it tints should
          stay light too; a dark theme-color would frame it against near-black. -->
     <meta name="theme-color" content="#F5F5F7" />

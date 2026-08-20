@@ -109,7 +109,14 @@ class Settings(BaseSettings):
         reports it to the user as the network being down. Both mistakes are
         repaired here, loudly, rather than being left to look like an outage.
         """
-        origins: list[str] = []
+        # The Android shell serves the app from https://localhost, so that is
+        # the Origin the API sees from every phone. Always allowed rather than
+        # left to configuration: it is a fixed property of the app we ship, not
+        # of any one deployment, and omitting it fails exactly like an outage —
+        # the request is refused before it is read and the phone reports the
+        # server as unreachable. It grants nothing on its own; requests still
+        # need a valid Firebase token, and CORS is not what stops an attacker.
+        origins: list[str] = ["https://localhost"]
         for raw in self.cors_origins.split(","):
             origin = raw.strip().rstrip("/")
             if not origin:
@@ -121,7 +128,8 @@ class Settings(BaseSettings):
                     origin,
                 )
                 origin = f"https://{origin}"
-            origins.append(origin)
+            if origin not in origins:
+                origins.append(origin)
         return origins
 
     @property
