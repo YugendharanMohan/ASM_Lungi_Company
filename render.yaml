@@ -17,15 +17,17 @@ services:
     # every page — the distance costs far more than the compute.
     region: singapore
     # Free instances sleep after 15 minutes without an inbound request and
-    # take about a minute to wake. .github/workflows/keep-alive.yml pings
-    # /api/health every 10 minutes to prevent that.
+    # take about a minute to wake. An external scheduler pings /api/health
+    # often enough to prevent that; it is deliberately not a GitHub Actions
+    # workflow, because `schedule` there is best-effort and was being delayed
+    # to 30-40 minute gaps in practice — too slow to beat a 15-minute timer.
     #
     # The budget is 750 instance-hours per workspace per calendar month, and
     # staying awake around the clock costs ~744 in a 31-day month. That is the
     # entire allowance for the whole workspace, not just this service: spin up
     # a second free service and Render suspends BOTH until the month rolls
     # over. Moving to `starter` removes the limit, the sleeping, and the need
-    # for the keep-alive workflow at once.
+    # for any pinger at once.
     plan: free
     # Migrations belong in preDeployCommand — it runs once per deploy, after
     # the build and before traffic shifts. That field is paid-only, so on the
