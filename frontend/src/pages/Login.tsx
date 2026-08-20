@@ -35,9 +35,22 @@ function readableError(error: unknown): string {
   }
 }
 
+/**
+ * The address used last time, so it does not have to be retyped.
+ *
+ * Only the address. The password is deliberately never stored: anything this
+ * app writes goes to WebView storage in clear text, readable by anyone who
+ * picks up an unlocked phone. Saving the password is the phone's job, not the
+ * app's — the fields carry the autocomplete hints Android's password manager
+ * needs, so it can offer to save and fill it from the OS keystore.
+ */
+const LAST_EMAIL_KEY = "asm-last-email"
+
 export function Login() {
   const { signInWithGoogle, signInWithPassword, resetPassword } = useAuth()
-  const [email, setEmail] = useState("")
+  const [email, setEmail] = useState(
+    () => localStorage.getItem(LAST_EMAIL_KEY) ?? "",
+  )
   const [password, setPassword] = useState("")
   const [busy, setBusy] = useState<"" | "google" | "password" | "reset">("")
   const [error, setError] = useState("")
@@ -58,7 +71,12 @@ export function Login() {
 
   function handlePasswordSignIn(event: FormEvent) {
     event.preventDefault()
-    void run("password", () => signInWithPassword(email, password))
+    void run("password", async () => {
+      await signInWithPassword(email, password)
+      // Only once it worked — remembering a mistyped address would just
+      // reproduce the mistake tomorrow.
+      localStorage.setItem(LAST_EMAIL_KEY, email.trim())
+    })
   }
 
   function handleReset() {
@@ -131,6 +149,9 @@ export function Login() {
           type="password"
           autoComplete="current-password"
           required
+          // Focused when the address is already known, so a returning user
+          // types their password and nothing else.
+          autoFocus={Boolean(email)}
           icon={<Lock className="size-[18px]" />}
           value={password}
           onChange={(event) => setPassword(event.target.value)}

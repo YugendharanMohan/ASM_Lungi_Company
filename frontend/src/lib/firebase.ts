@@ -1,5 +1,12 @@
 import { initializeApp, type FirebaseApp } from "firebase/app"
-import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth"
+import {
+  browserLocalPersistence,
+  getAuth,
+  GoogleAuthProvider,
+  indexedDBLocalPersistence,
+  setPersistence,
+  type Auth,
+} from "firebase/auth"
 
 const config = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -28,6 +35,18 @@ let authInstance: Auth | null = null
 if (isFirebaseConfigured) {
   app = initializeApp(config)
   authInstance = getAuth(app)
+
+  // Keep the session across app restarts, so signing in is something you do
+  // once rather than every morning. Set explicitly rather than relying on the
+  // default: inside the Android WebView, Firebase silently falls back to
+  // in-memory persistence when it cannot open its preferred store, and an
+  // in-memory session dies with the process — which looks exactly like the
+  // app forgetting the login. IndexedDB first, localStorage if that is
+  // unavailable; the promise is fire-and-forget because failing to upgrade
+  // persistence must not stop the app loading.
+  void setPersistence(authInstance, indexedDBLocalPersistence).catch(() =>
+    setPersistence(authInstance!, browserLocalPersistence).catch(() => {}),
+  )
 }
 
 export const auth = authInstance
