@@ -55,6 +55,19 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
           "[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
           "[-moz-appearance:textfield]",
         )}
+        // Phone keyboards capitalise the first letter and autocorrect as you
+        // type, which quietly mangles an address before it is ever submitted.
+        // Firebase happens to ignore case, but it rejects a padded address
+        // outright, and the user cannot see what the keyboard did. Applied to
+        // email fields only, and still overridable by the caller below.
+        {...(props.type === "email"
+          ? {
+              autoCapitalize: "none" as const,
+              autoCorrect: "off" as const,
+              spellCheck: false,
+              inputMode: "email" as const,
+            }
+          : {})}
         {...props}
       />
     </FieldShell>
