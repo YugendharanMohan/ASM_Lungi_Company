@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
-import { Check, Gauge, Pencil, Plus, Ruler, Trash2, User } from "lucide-react"
+import { useNavigate } from "react-router-dom"
+import {
+  Camera,
+  Check,
+  Gauge,
+  Pencil,
+  Plus,
+  Ruler,
+  Trash2,
+  User,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { useApi } from "@/hooks/useApi"
@@ -39,6 +49,7 @@ interface EditState {
 }
 
 export function Production() {
+  const navigate = useNavigate()
   const confirm = useConfirm()
   const [entryDate, setEntryDate] = useState(todayISO())
   const [shift, setShift] = useState<Shift>("DAY")
@@ -315,6 +326,15 @@ export function Production() {
       <PageHeader
         title="Daily Entry"
         description="Record what each worker wove, shift by shift. Any worker can be booked to any loom."
+        actions={
+          <Button
+            variant="secondary"
+            icon={<Camera className="size-4" />}
+            onClick={() => navigate("/production/import")}
+          >
+            Read a sheet
+          </Button>
+        }
       />
 
       {/* Side by side only from 1536px. The entries table carries eight

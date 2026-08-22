@@ -207,3 +207,64 @@ class DashboardStats(BaseModel):
     week_dispatch_quantity: int
     week_dispatch_by_company: list[DispatchSummaryRow]
     daily_production: list[dict]
+
+
+# --------------------------------------------------------------------------
+# Register import (photograph of the weekly sheet)
+# --------------------------------------------------------------------------
+class SheetCell(BaseModel):
+    #: None when the loom was idle that day; a blank cell is not a zero.
+    value: float | None = None
+    #: OCR confidence, 0-1. Only meaningful on an extract response.
+    confidence: float = 0.0
+    raw: str = ""
+
+
+class SheetColumn(BaseModel):
+    loom_number: str
+    cells: list[SheetCell]
+    #: The total written under the column on the paper, when one was read.
+    written_total: float | None = None
+    computed_total: float = 0.0
+    #: None when the paper carried no total to check against.
+    matches: bool | None = None
+
+
+class SheetOut(BaseModel):
+    """What was read off the photograph. Nothing is saved at this point."""
+
+    columns: list[SheetColumn]
+    day_count: int
+    grand_total: float
+    mismatched_looms: list[str]
+
+
+class ImportContext(BaseModel):
+    """Everything the paper does not record, supplied by the operator."""
+
+    worker_id: int
+    shed_id: int
+    week_start: date
+    shift: Shift
+    pick_type: PickType
+    rate_per_meter: float = Field(gt=0)
+    day_count: int = Field(default=7, ge=1, le=31)
+
+
+class ImportCommit(ImportContext):
+    #: The reviewed grid — what the operator confirmed, not what OCR returned.
+    columns: list[SheetColumn]
+
+
+class ImportedRow(BaseModel):
+    entry_date: date
+    loom_label: str
+    meters: float
+    status: str  # created | duplicate | no-such-loom
+    detail: str = ""
+
+
+class ImportResult(BaseModel):
+    created: int
+    skipped: int
+    rows: list[ImportedRow]

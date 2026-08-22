@@ -10,6 +10,7 @@ from app.api.routes import (
     dispatch,
     looms,
     production,
+    production_import,
     salary,
     sheds,
     users,
@@ -71,6 +72,7 @@ api.include_router(sheds.router)
 api.include_router(looms.router)
 api.include_router(workers.router)
 api.include_router(production.router)
+api.include_router(production_import.router)
 api.include_router(salary.router)
 api.include_router(dispatch.router)
 api.include_router(dashboard.router)

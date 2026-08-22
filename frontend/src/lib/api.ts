@@ -135,7 +135,49 @@ async function download(
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+/**
+ * POST a file as multipart/form-data.
+ *
+ * Separate from `post` because the body must NOT carry a Content-Type header:
+ * the browser has to set it itself so it can append the multipart boundary,
+ * and setting it by hand produces a body the server cannot parse.
+ */
+async function upload<T>(
+  path: string,
+  file: File,
+  fields: Record<string, string | number> = {},
+  fileField = "image",
+): Promise<T> {
+  const headers = await authHeader()
+  delete (headers as Record<string, string>)["Content-Type"]
+
+  const body = new FormData()
+  body.append(fileField, file)
+  for (const [key, value] of Object.entries(fields)) {
+    body.append(key, String(value))
+  }
+
+  const response = await fetch(`${BASE_URL}/api${path}`, {
+    method: "POST",
+    headers,
+    body,
+  })
+
+  const text = await response.text()
+  let payload: unknown = null
+  try {
+    payload = text ? JSON.parse(text) : null
+  } catch {
+    payload = null
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, extractDetail(payload, response))
+  }
+  return payload as T
+}
+
 export const api = {
+  upload,
   download,
   get: <T>(path: string, params: Record<string, unknown> = {}) =>
     request<T>(`${path}${query(params)}`),

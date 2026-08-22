@@ -27,6 +27,11 @@ const Looms = lazy(() =>
 const Production = lazy(() =>
   import("@/pages/Production").then((m) => ({ default: m.Production })),
 )
+const ProductionImport = lazy(() =>
+  import("@/pages/ProductionImport").then((m) => ({
+    default: m.ProductionImport,
+  })),
+)
 const Salary = lazy(() =>
   import("@/pages/Salary").then((m) => ({ default: m.Salary })),
 )
@@ -87,6 +92,7 @@ function AuthGate() {
       >
         <Route index element={<Overview />} />
         <Route path="production" element={<Production />} />
+        <Route path="production/import" element={<ProductionImport />} />
         <Route path="workers" element={<Workers />} />
         <Route path="sheds" element={<Sheds />} />
         <Route path="looms" element={<Looms />} />
