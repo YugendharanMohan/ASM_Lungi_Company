@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import (
     dashboard,
     dispatch,
+    leave,
     looms,
     production,
     production_import,
@@ -75,6 +76,7 @@ api.include_router(production.router)
 api.include_router(production_import.router)
 api.include_router(salary.router)
 api.include_router(dispatch.router)
+api.include_router(leave.router)
 api.include_router(dashboard.router)
 app.include_router(api)
 

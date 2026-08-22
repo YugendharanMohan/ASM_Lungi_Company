@@ -20,7 +20,7 @@ from app.core.labels import loom_label
 from app.core.sheet_grid import build_sheet
 from app.core.vision import VisionUnavailable, is_configured, read_words
 from app.db.session import get_db
-from app.models import Loom, ProductionEntry, Shed, Worker
+from app.models import Loom, ProductionEntry, Shed, Worker, WorkerLeave
 from app.schemas.operations import (
     ImportCommit,
     ImportedRow,
@@ -126,6 +126,37 @@ def commit_sheet(
     rows: list[ImportedRow] = []
     created = 0
 
+    # Absences first, so a day marked leave is recorded even if it also
+    # somehow carried figures — those cells are skipped below.
+    leave_indices = {i for i in payload.leave_days if 0 <= i < payload.day_count}
+    leave_recorded = 0
+    for day_index in sorted(leave_indices):
+        leave_date = payload.week_start + timedelta(days=day_index)
+        already = db.scalar(
+            select(WorkerLeave.id).where(
+                WorkerLeave.worker_id == payload.worker_id,
+                WorkerLeave.leave_date == leave_date,
+            )
+        )
+        if already is None:
+            db.add(
+                WorkerLeave(
+                    worker_id=payload.worker_id,
+                    leave_date=leave_date,
+                    note="Marked while reading the weekly sheet.",
+                )
+            )
+            leave_recorded += 1
+        rows.append(
+            ImportedRow(
+                entry_date=leave_date,
+                loom_label="—",
+                meters=0,
+                status="leave",
+                detail="Recorded as a leave day; no production saved.",
+            )
+        )
+
     for column in payload.columns:
         loom = looms.get(column.loom_number)
         label = loom_label(shed.name, column.loom_number)
@@ -136,6 +167,11 @@ def commit_sheet(
         rate = column.rate_per_meter or payload.rate_per_meter
 
         for day_index, cell in enumerate(column.cells):
+            # A day the worker was absent produces nothing, whatever the
+            # cell happens to hold. The operator was warned before ticking it.
+            if day_index in leave_indices:
+                continue
+
             # A blank cell means the loom stood idle; there is nothing to
             # record, and a zero-metre entry would be a claim that it ran.
             if cell.value is None or cell.value <= 0:

@@ -177,3 +177,13 @@ export interface DashboardStats {
   week_dispatch_by_company: { company_name: string; quantity: number }[]
   daily_production: { date: string; meters: number }[]
 }
+
+/** A day a worker did not work. Recorded, so a blank day is explained. */
+export interface WorkerLeave {
+  id: number
+  worker_id: number
+  leave_date: string
+  note: string
+  created_at: string
+  worker_name: string
+}

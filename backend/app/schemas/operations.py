@@ -262,6 +262,10 @@ class ImportContext(BaseModel):
 class ImportCommit(ImportContext):
     #: The reviewed grid — what the operator confirmed, not what OCR returned.
     columns: list[SheetColumn]
+    #: Row indices (0 = the week's first day) the worker was absent. Those
+    #: days record an absence instead of production, so a blank row is
+    #: explained rather than merely empty.
+    leave_days: list[int] = Field(default_factory=list)
 
 
 class ImportedRow(BaseModel):

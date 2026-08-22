@@ -16,9 +16,17 @@ import { useApi } from "@/hooks/useApi"
 import { useConfirm } from "@/ui/ConfirmDialog"
 import { loomLabelSortKey } from "@/lib/looms"
 import { api, ApiError } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { formatCurrency, formatDate, formatMeters, todayISO } from "@/lib/format"
 import { PICK_TYPES, SHIFT_HOURS } from "@/lib/types"
-import type { Loom, PickType, ProductionEntry, Shift, Worker } from "@/lib/types"
+import type {
+  Loom,
+  PickType,
+  ProductionEntry,
+  Shift,
+  Worker,
+  WorkerLeave,
+} from "@/lib/types"
 import { Button } from "@/ui/Button"
 import { Card, CardHeader } from "@/ui/Card"
 import { DataTable, type Column } from "@/ui/DataTable"
@@ -70,6 +78,15 @@ export function Production() {
     api.get<Worker[]>("/workers", { active_only: true }),
   )
   const looms = useApi<Loom[]>(() => api.get<Loom[]>("/looms"))
+  // Reloaded per worker rather than fetched wholesale: a mill accrues years of
+  // absences and only this worker's matter for the entry being typed.
+  const leave = useApi<WorkerLeave[]>(
+    () =>
+      workerId
+        ? api.get<WorkerLeave[]>("/leave", { worker_id: Number(workerId) })
+        : Promise.resolve([]),
+    [workerId],
+  )
   const entries = useApi<ProductionEntry[]>(
     () =>
       api.get<ProductionEntry[]>("/production", {
@@ -110,10 +127,73 @@ export function Production() {
     return Object.keys(next).length === 0
   }
 
+  const markedLeave = useMemo(
+    () => leave.data?.find((l) => l.leave_date === entryDate) ?? null,
+    [leave.data, entryDate],
+  )
+
+  /**
+   * Marking and unmarking an absence from the entry form.
+   *
+   * Without this, leave could only ever be recorded by importing a photograph
+   * — so a mill that types its figures in by hand would have no way to say
+   * anybody was away.
+   */
+  async function toggleLeave() {
+    if (!selectedWorker) return
+
+    if (markedLeave) {
+      await api.delete(`/leave/${markedLeave.id}`)
+      toast.success(`${selectedWorker.name} is no longer marked absent`)
+      void leave.reload()
+      return
+    }
+
+    const ok = await confirm({
+      title: `Mark ${selectedWorker.name} absent on ${formatDate(entryDate)}?`,
+      message:
+        "The day is recorded as leave, and typing metres against it will warn.",
+      confirmLabel: "Mark absent",
+      tone: "neutral",
+    })
+    if (!ok) return
+
+    try {
+      await api.post("/leave", {
+        worker_id: selectedWorker.id,
+        leave_date: entryDate,
+        note: "",
+      })
+      toast.success(`${selectedWorker.name} marked absent`, {
+        description: formatDate(entryDate),
+      })
+      void leave.reload()
+    } catch (caught) {
+      // The server refuses when metres already exist for that day, and its
+      // message names the worker and the date — better than anything generic.
+      toast.error(
+        caught instanceof ApiError ? caught.message : "Could not mark leave.",
+      )
+    }
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
     setFormError("")
     if (!validate()) return
+
+    // Recording production on a day already marked as an absence contradicts
+    // the record. Allowed, because the absence may simply be wrong, but never
+    // silently — the two claims cannot both be true.
+    if (markedLeave) {
+      const ok = await confirm({
+        title: `${selectedWorker?.name ?? "This worker"} is marked on leave`,
+        message: `${formatDate(entryDate)} is recorded as a leave day. Saving production against it means one of the two is wrong.`,
+        confirmLabel: "Save anyway",
+        tone: "neutral",
+      })
+      if (!ok) return
+    }
 
     setSubmitting(true)
     try {
@@ -405,6 +485,31 @@ export function Production() {
                   : undefined
               }
             />
+
+            {selectedWorker && (
+              <div
+                className={cn(
+                  "flex items-center justify-between gap-3 rounded-[10px] px-3 py-2",
+                  markedLeave
+                    ? "bg-[var(--warning-soft)]"
+                    : "bg-[var(--surface-sunken)]",
+                )}
+              >
+                <p className="text-[12.5px] text-[var(--text-secondary)]">
+                  {markedLeave
+                    ? `${selectedWorker.name} is marked absent on this day.`
+                    : "Was this worker away today?"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void toggleLeave()}
+                  className="shrink-0 rounded-[7px] px-2 py-1 text-[12.5px] font-medium text-[var(--accent)] transition-colors hover:bg-[var(--surface-raised)]"
+                >
+                  {markedLeave ? "Undo" : "Mark absent"}
+                </button>
+              </div>
+            )}
+
 
             <SelectField
               label="Loom"

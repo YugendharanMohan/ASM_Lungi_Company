@@ -10,6 +10,7 @@ from app.models.dispatch import (
     DispatchItem,
     DispatchPick,
 )
+from app.models.leave import WorkerLeave
 from app.models.loom import Loom
 from app.models.production import PickType, ProductionEntry, Shift
 from app.models.shed import Shed
@@ -22,6 +23,7 @@ __all__ = [
     "DispatchItem",
     "DispatchPick",
     "Loom",
+    "WorkerLeave",
     "PickType",
     "ProductionEntry",
     "Shed",

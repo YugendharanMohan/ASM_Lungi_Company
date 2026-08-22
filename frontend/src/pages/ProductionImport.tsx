@@ -4,6 +4,7 @@ import { AlertTriangle, Camera, Check, Loader2, Upload, User } from "lucide-reac
 import { toast } from "sonner"
 
 import { useApi } from "@/hooks/useApi"
+import { useConfirm } from "@/ui/ConfirmDialog"
 import { api, ApiError } from "@/lib/api"
 import { downscaleImage } from "@/lib/imageScale"
 import {
@@ -83,6 +84,7 @@ function addDays(iso: string, days: number): string {
 
 export function ProductionImport() {
   const navigate = useNavigate()
+  const confirm = useConfirm()
   const workers = useApi<Worker[]>(() =>
     api.get<Worker[]>("/workers", { active_only: true }),
   )
@@ -101,6 +103,8 @@ export function ProductionImport() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [result, setResult] = useState<ImportResult | null>(null)
+  /** Row indices the worker was absent. Those days record no production. */
+  const [leaveDays, setLeaveDays] = useState<Set<number>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
 
   const contextReady =
@@ -122,9 +126,19 @@ export function ProductionImport() {
 
   const totals = useMemo(() => {
     if (!sheet) return null
+    // Two different questions, deliberately not conflated:
+    //
+    //   `computed` covers every day and answers "did we read the page right?"
+    //   — so it is what the checksum compares against the written total.
+    //   `saved` skips days marked as leave and answers "what will be written?"
+    //
+    // Folding leave into the checksum would make marking an absence look like
+    // a misreading, and every column would fail against a page that was read
+    // perfectly well.
     const columns = sheet.columns.map((c) => ({
       loom: c.loom_number,
       computed: columnTotal(c.cells),
+      saved: columnTotal(c.cells.filter((_, d) => !leaveDays.has(d))),
       written: c.written_total,
       // Recomputed here rather than trusting the server's flag: the operator
       // has been editing, so the only honest comparison is against what is on
@@ -136,7 +150,7 @@ export function ProductionImport() {
       known: shedLoomNumbers.size === 0 || shedLoomNumbers.has(c.loom_number),
     }))
     const grand = Math.round(
-      columns.reduce((s, c) => s + c.computed, 0) * 100,
+      columns.reduce((s, c) => s + c.saved, 0) * 100,
     ) / 100
     // Summed per column rather than grand x rate: with three picks on one
     // sheet there is no single rate to multiply by, and doing so would quietly
@@ -145,7 +159,7 @@ export function ProductionImport() {
       Math.round(
         sheet.columns.reduce((sum, column, i) => {
           const r = column.rate_per_meter ?? Number(rate) ?? 0
-          return sum + columns[i].computed * (r || 0)
+          return sum + columns[i].saved * (r || 0)
         }, 0) * 100,
       ) / 100
     return {
@@ -155,7 +169,7 @@ export function ProductionImport() {
       unknown: columns.filter((c) => !c.known),
       wage,
     }
-  }, [sheet, rate, shedLoomNumbers])
+  }, [sheet, rate, shedLoomNumbers, leaveDays])
 
   async function handleFile(file: File | undefined) {
     if (!file) return
@@ -170,6 +184,7 @@ export function ProductionImport() {
         { day_count: DAY_COUNT },
       )
       setSheet(data)
+      setLeaveDays(new Set())
       if (data.mismatched_looms.length) {
         toast.warning(
           `Read, but ${data.mismatched_looms.length} column(s) disagree with the totals written on the page.`,
@@ -240,6 +255,38 @@ export function ProductionImport() {
     })
   }
 
+  async function toggleLeave(dayIndex: number) {
+    if (!sheet) return
+    const next = new Set(leaveDays)
+
+    if (next.has(dayIndex)) {
+      next.delete(dayIndex)
+      setLeaveDays(next)
+      return
+    }
+
+    // Figures on the row and "absent" are contradictory claims. The figures
+    // stay on screen — they are what the page says, and the checksum still has
+    // to answer for them — but they will not be saved. Say so rather than
+    // dropping them quietly.
+    const filled = sheet.columns
+      .map((c) => c.cells[dayIndex]?.value)
+      .filter((v): v is number => v !== null && v !== undefined && v > 0)
+
+    if (filled.length > 0) {
+      const total = Math.round(filled.reduce((a, b) => a + b, 0) * 100) / 100
+      const ok = await confirm({
+        title: `Mark ${formatDate(addDays(weekStart, dayIndex))} as leave?`,
+        message: `The sheet has ${formatMeters(total)} across ${filled.length} loom${filled.length === 1 ? "" : "s"} on that day. Marking it leave records an absence and leaves those figures unsaved.`,
+        confirmLabel: "Mark as leave",
+      })
+      if (!ok) return
+    }
+
+    next.add(dayIndex)
+    setLeaveDays(next)
+  }
+
   async function handleSave() {
     if (!sheet || !totals) return
     setError("")
@@ -253,6 +300,7 @@ export function ProductionImport() {
         pick_type: pick,
         rate_per_meter: Number(rate),
         day_count: DAY_COUNT,
+        leave_days: [...leaveDays],
         columns: sheet.columns.map((c) => ({
           loom_number: c.loom_number,
           cells: c.cells.map((cell) => ({ value: cell.value })),
@@ -490,10 +538,39 @@ export function ProductionImport() {
                 </tr>
               </thead>
               <tbody>
-                {Array.from({ length: DAY_COUNT }).map((_, day) => (
-                  <tr key={day} className="border-b border-[var(--border-subtle)]">
-                    <td className="whitespace-nowrap px-2 py-1.5 text-[var(--text-secondary)]">
-                      {formatDate(addDays(weekStart, day))}
+                {Array.from({ length: DAY_COUNT }).map((_, day) => {
+                  const onLeave = leaveDays.has(day)
+                  return (
+                  <tr
+                    key={day}
+                    className={cn(
+                      "border-b border-[var(--border-subtle)]",
+                      onLeave && "bg-[var(--warning-soft)]/40",
+                    )}
+                  >
+                    <td className="whitespace-nowrap px-2 py-1.5">
+                      <span
+                        className={cn(
+                          "block",
+                          onLeave
+                            ? "text-[var(--text-tertiary)] line-through"
+                            : "text-[var(--text-secondary)]",
+                        )}
+                      >
+                        {formatDate(addDays(weekStart, day))}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void toggleLeave(day)}
+                        className={cn(
+                          "mt-0.5 rounded-[6px] px-1.5 py-0.5 text-[10.5px] font-medium transition-colors",
+                          onLeave
+                            ? "bg-[var(--warning-soft)] text-[var(--warning)]"
+                            : "text-[var(--text-tertiary)] hover:bg-[var(--surface-sunken)]",
+                        )}
+                      >
+                        {onLeave ? "On leave" : "Mark leave"}
+                      </button>
                     </td>
                     {sheet.columns.map((column, col) => {
                       const cell = column.cells[day]
@@ -502,6 +579,10 @@ export function ProductionImport() {
                         <td key={col} className="px-1 py-1">
                           <input
                             inputMode="decimal"
+                            // Still editable on a leave row: the checksum holds
+                            // the whole page to what was written, and a cell
+                            // misread on an absent day would otherwise flag a
+                            // column with no way to correct it.
                             value={cell.value ?? ""}
                             onChange={(e) => editCell(col, day, e.target.value)}
                             aria-label={`Loom ${column.loom_number}, ${formatDate(addDays(weekStart, day))}`}
@@ -511,13 +592,15 @@ export function ProductionImport() {
                               unsure
                                 ? "border-[var(--warning)] bg-[var(--warning-soft)]"
                                 : "border-[var(--border-subtle)]",
+                              onLeave && "text-[var(--text-tertiary)] line-through opacity-60",
                             )}
                           />
                         </td>
                       )
                     })}
                   </tr>
-                ))}
+                  )
+                })}
                 <tr className="bg-[var(--surface-sunken)]">
                   <td className="px-2 py-2 text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--text-tertiary)]">
                     Total
@@ -532,6 +615,11 @@ export function ProductionImport() {
                       >
                         {c.computed.toFixed(2)}
                       </span>
+                      {c.saved !== c.computed && (
+                        <span className="tabular block text-[11px] text-[var(--warning)]">
+                          saving {c.saved.toFixed(2)}
+                        </span>
+                      )}
                       {c.written !== null && (
                         <span
                           className={cn(
@@ -546,7 +634,7 @@ export function ProductionImport() {
                       )}
                       <span className="tabular block text-[11px] text-[var(--text-tertiary)]">
                         {formatCurrency(
-                          c.computed *
+                          c.saved *
                             (sheet.columns[
                               totals.columns.indexOf(c)
                             ]?.rate_per_meter ??
@@ -576,7 +664,10 @@ export function ProductionImport() {
               )}
             </p>
             <div className="flex gap-2">
-              <Button variant="secondary" onClick={() => setSheet(null)}>
+              <Button variant="secondary" onClick={() => {
+                  setSheet(null)
+                  setLeaveDays(new Set())
+                }}>
                 Discard
               </Button>
               <Button
