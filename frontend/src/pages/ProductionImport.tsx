@@ -39,6 +39,9 @@ interface SheetColumn {
   written_total: number | null
   computed_total: number
   matches: boolean | null
+  /** Set per loom. Undefined means "use the sheet default". */
+  pick_type?: PickType
+  rate_per_meter?: number
 }
 
 interface SheetOut {
@@ -135,12 +138,22 @@ export function ProductionImport() {
     const grand = Math.round(
       columns.reduce((s, c) => s + c.computed, 0) * 100,
     ) / 100
+    // Summed per column rather than grand x rate: with three picks on one
+    // sheet there is no single rate to multiply by, and doing so would quietly
+    // pay every loom at whatever the default happened to be.
+    const wage =
+      Math.round(
+        sheet.columns.reduce((sum, column, i) => {
+          const r = column.rate_per_meter ?? Number(rate) ?? 0
+          return sum + columns[i].computed * (r || 0)
+        }, 0) * 100,
+      ) / 100
     return {
       columns,
       grand,
       disagreeing: columns.filter((c) => c.ok === false),
       unknown: columns.filter((c) => !c.known),
-      wage: Math.round(grand * (Number(rate) || 0) * 100) / 100,
+      wage,
     }
   }, [sheet, rate, shedLoomNumbers])
 
@@ -200,6 +213,33 @@ export function ProductionImport() {
     setSheet({ ...sheet, columns })
   }
 
+  function setColumnPick(index: number, value: PickType) {
+    if (!sheet) return
+    setSheet({
+      ...sheet,
+      columns: sheet.columns.map((c, i) =>
+        i === index ? { ...c, pick_type: value } : c,
+      ),
+    })
+  }
+
+  function setColumnRate(index: number, raw: string) {
+    if (!sheet) return
+    const parsed = Number(raw)
+    setSheet({
+      ...sheet,
+      columns: sheet.columns.map((c, i) =>
+        i === index
+          ? {
+              ...c,
+              rate_per_meter:
+                raw.trim() === "" || Number.isNaN(parsed) ? undefined : parsed,
+            }
+          : c,
+      ),
+    })
+  }
+
   async function handleSave() {
     if (!sheet || !totals) return
     setError("")
@@ -216,6 +256,8 @@ export function ProductionImport() {
         columns: sheet.columns.map((c) => ({
           loom_number: c.loom_number,
           cells: c.cells.map((cell) => ({ value: cell.value })),
+          pick_type: c.pick_type ?? pick,
+          rate_per_meter: c.rate_per_meter ?? Number(rate),
         })),
       }
       const res = await api.post<ImportResult>(
@@ -323,7 +365,7 @@ export function ProductionImport() {
             suffix="₹/m"
             value={rate}
             onChange={(e) => setRate(e.target.value)}
-            hint="The rate varies by pick and worker, so it is set per sheet."
+            hint="Starting value. Each loom can be changed individually once the sheet is read."
           />
         </div>
 
@@ -403,6 +445,49 @@ export function ProductionImport() {
                     </th>
                   ))}
                 </tr>
+                {/* Pick and rate belong to the loom, not the sheet: a worker
+                    can run three looms on 88x96 and two on 88x80 in the same
+                    week, each paid differently. Both default to the values
+                    chosen above and are changed only where they differ. */}
+                <tr>
+                  <th className="px-2 py-1 text-left text-[11px] font-medium text-[var(--text-tertiary)]">
+                    Pick
+                  </th>
+                  {sheet.columns.map((column, i) => (
+                    <th key={i} className="px-1 py-1">
+                      <select
+                        value={column.pick_type ?? pick}
+                        onChange={(e) =>
+                          setColumnPick(i, e.target.value as PickType)
+                        }
+                        aria-label={`Pick for loom ${column.loom_number}`}
+                        className="tabular h-8 w-full cursor-pointer appearance-none rounded-[7px] border border-[var(--border-subtle)] bg-[var(--surface)] px-1 text-center text-[12px] outline-none focus:border-[var(--accent)]"
+                      >
+                        {PICK_TYPES.map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </th>
+                  ))}
+                </tr>
+                <tr>
+                  <th className="px-2 py-1 text-left text-[11px] font-medium text-[var(--text-tertiary)]">
+                    Rate ₹/m
+                  </th>
+                  {sheet.columns.map((column, i) => (
+                    <th key={i} className="px-1 py-1 pb-2">
+                      <input
+                        inputMode="decimal"
+                        value={column.rate_per_meter ?? rate}
+                        onChange={(e) => setColumnRate(i, e.target.value)}
+                        aria-label={`Rate for loom ${column.loom_number}`}
+                        className="tabular h-8 w-full rounded-[7px] border border-[var(--border-subtle)] bg-[var(--surface)] px-1 text-center text-[12px] font-normal outline-none focus:border-[var(--accent)] focus:shadow-[0_0_0_2px_var(--ring)]"
+                      />
+                    </th>
+                  ))}
+                </tr>
               </thead>
               <tbody>
                 {Array.from({ length: DAY_COUNT }).map((_, day) => (
@@ -459,6 +544,16 @@ export function ProductionImport() {
                           {c.ok === false ? `page: ${c.written.toFixed(2)}` : "✓ matches"}
                         </span>
                       )}
+                      <span className="tabular block text-[11px] text-[var(--text-tertiary)]">
+                        {formatCurrency(
+                          c.computed *
+                            (sheet.columns[
+                              totals.columns.indexOf(c)
+                            ]?.rate_per_meter ??
+                              Number(rate) ??
+                              0),
+                        )}
+                      </span>
                     </td>
                   ))}
                 </tr>

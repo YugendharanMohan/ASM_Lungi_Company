@@ -229,6 +229,14 @@ class SheetColumn(BaseModel):
     #: None when the paper carried no total to check against.
     matches: bool | None = None
 
+    #: Pick and rate belong to the loom, not the sheet. One worker can run
+    #: three looms on 88x96, three on 88x92 and two on 88x80 in the same week,
+    #: each paid differently, and the paper records none of it — so each column
+    #: carries its own. Left unset, the sheet-level values are used as the
+    #: default rather than being the only answer available.
+    pick_type: PickType | None = None
+    rate_per_meter: float | None = Field(default=None, gt=0)
+
 
 class SheetOut(BaseModel):
     """What was read off the photograph. Nothing is saved at this point."""

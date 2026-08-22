@@ -130,6 +130,11 @@ def commit_sheet(
         loom = looms.get(column.loom_number)
         label = loom_label(shed.name, column.loom_number)
 
+        # The loom's own pick and rate win; the sheet-level ones are only a
+        # fallback for columns the operator left alone.
+        pick_type = column.pick_type or payload.pick_type
+        rate = column.rate_per_meter or payload.rate_per_meter
+
         for day_index, cell in enumerate(column.cells):
             # A blank cell means the loom stood idle; there is nothing to
             # record, and a zero-metre entry would be a claim that it ran.
@@ -153,12 +158,12 @@ def commit_sheet(
             entry = ProductionEntry(
                 entry_date=entry_date,
                 shift=payload.shift,
-                pick_type=payload.pick_type,
+                pick_type=pick_type,
                 worker_id=payload.worker_id,
                 loom_id=loom.id,
                 meters=round(cell.value, 2),
-                rate_per_meter=round(payload.rate_per_meter, 2),
-                total_amount=round(cell.value * payload.rate_per_meter, 2),
+                rate_per_meter=round(rate, 2),
+                total_amount=round(cell.value * rate, 2),
             )
             # Each row goes in its own savepoint, so one duplicate reports
             # itself while the other forty-eight still save. All-or-nothing

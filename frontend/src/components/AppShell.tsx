@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react"
 import {
   BarChart3,
   Building2,
+  Camera,
   ClipboardList,
   Cog,
   LayoutGrid,
@@ -33,7 +34,20 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { to: "/", label: "Overview", short: "Overview", icon: LayoutGrid, end: true },
-  { to: "/production", label: "Daily Entry", short: "Entry", icon: ClipboardList },
+  // end: NavLink matches by prefix by default, so without it "/production"
+  // also lights up on "/production/import" and both items look active at once.
+  {
+    to: "/production",
+    label: "Daily Entry",
+    short: "Entry",
+    icon: ClipboardList,
+    end: true,
+  },
+  // Photographing a sheet and typing one entry are different jobs done at
+  // different times — one is a week's paperwork, the other is a loom finishing
+  // now. Each gets its own destination rather than one hiding behind a button
+  // on the other.
+  { to: "/production/import", label: "Read a Sheet", short: "Scan", icon: Camera },
   { to: "/workers", label: "Workers", short: "Workers", icon: Users },
   { to: "/salary", label: "Salary", short: "Salary", icon: BarChart3 },
   { to: "/dispatch", label: "Dispatch", short: "Dispatch", icon: Truck },
@@ -59,9 +73,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const primary = nav.slice(0, MOBILE_PRIMARY)
   const overflow = nav.slice(MOBILE_PRIMARY)
-  const current = nav.find((item) =>
-    item.end ? location.pathname === item.to : location.pathname === item.to,
-  )
+  const current = nav.find((item) => location.pathname === item.to)
 
   useEffect(() => setMoreOpen(false), [location.pathname])
 
