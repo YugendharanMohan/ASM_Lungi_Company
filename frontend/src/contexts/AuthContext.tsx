@@ -33,6 +33,7 @@ export type AuthStatus =
   | "signed-out"
   | "unverified"
   | "denied"
+  | "offline"
   | "signed-in"
 
 interface AuthContextValue {
@@ -47,6 +48,7 @@ interface AuthContextValue {
   resetPassword: (email: string) => Promise<void>
   resendVerification: () => Promise<void>
   refreshVerification: () => Promise<boolean>
+  retry: () => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -72,6 +74,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
       if (error instanceof ApiError) {
         setDeniedReason(error.message)
+        // Status 0 means the request never reached the server — it was
+        // asleep, the phone is offline, or the host is down. Reporting that
+        // as "denied" told people an administrator had refused them, sending
+        // them to ask for access that they already had.
+        if (error.status === 0) {
+          setStatus("offline")
+          return
+        }
         // 403 with an unverified email should land on the verify screen, not
         // the generic denial — the user can fix that one themselves.
         setStatus(
@@ -153,6 +163,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return false
   }, [loadProfile])
 
+  /** Try the profile call again, for the "cannot reach the server" screen. */
+  const retry = useCallback(async () => {
+    setStatus("loading")
+    await loadProfile()
+  }, [loadProfile])
+
   const logout = useCallback(async () => {
     if (isFirebaseConfigured) await signOut(requireAuth())
     setUser(null)
@@ -172,6 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resetPassword,
       resendVerification,
       refreshVerification,
+      retry,
       logout,
     }),
     [
@@ -185,6 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resetPassword,
       resendVerification,
       refreshVerification,
+      retry,
       logout,
     ],
   )

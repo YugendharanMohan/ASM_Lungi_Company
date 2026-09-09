@@ -2,6 +2,9 @@ import { auth, isFirebaseConfigured } from "@/lib/firebase"
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "")
 
+/** Long enough to cover a cold start on Render's free plan, plus headroom. */
+export const WAKE_TIMEOUT_MS = 90_000
+
 /** An API error carrying the backend's own message, ready to show a user. */
 export class ApiError extends Error {
   // Declared and assigned explicitly rather than as a constructor parameter
@@ -36,7 +39,15 @@ async function request<T>(
 
   let response: Response
   try {
-    response = await fetch(`${BASE_URL}/api${path}`, { ...init, headers })
+    response = await fetch(`${BASE_URL}/api${path}`, {
+      ...init,
+      headers,
+      // The API sleeps when idle on the free plan and takes around a minute
+      // to wake, so this has to outlast that or every first request of the
+      // day would be cancelled just short of succeeding. It exists to stop a
+      // dead request hanging forever, not to enforce a snappy response.
+      signal: init.signal ?? AbortSignal.timeout(WAKE_TIMEOUT_MS),
+    })
   } catch {
     throw new ApiError(
       0,

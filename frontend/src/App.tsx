@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom"
 import { Loader2 } from "lucide-react"
 import { Toaster } from "sonner"
@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext"
 import { ThemeProvider } from "@/contexts/ThemeContext"
 import { AccessDenied } from "@/pages/AccessDenied"
 import { Login } from "@/pages/Login"
+import { ServerUnreachable } from "@/pages/ServerUnreachable"
 import { VerifyEmail } from "@/pages/VerifyEmail"
 
 // Feature screens are split out of the entry bundle. The charting library
@@ -46,15 +47,32 @@ const Workers = lazy(() =>
 )
 
 function Spinner({ full = false }: { full?: boolean }) {
+  // The API sleeps when idle and takes about a minute to wake, so the first
+  // open of the day sits here for far longer than a spinner implies. After a
+  // few seconds, say so — an explained wait is a different experience from a
+  // blank one, and people were force-closing the app believing it had hung.
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    if (!full) return
+    const timer = window.setTimeout(() => setSlow(true), 4000)
+    return () => window.clearTimeout(timer)
+  }, [full])
+
   return (
     <div
       className={
         full
-          ? "flex min-h-dvh items-center justify-center bg-[var(--bg)]"
+          ? "flex min-h-dvh flex-col items-center justify-center gap-4 bg-[var(--bg)] px-8"
           : "flex items-center justify-center py-24"
       }
     >
       <Loader2 className="size-5 animate-spin text-[var(--text-tertiary)]" />
+      {full && slow && (
+        <p className="max-w-[280px] text-center text-[13px] leading-relaxed text-[var(--text-tertiary)]">
+          Waking the server. This can take up to a minute the first time it is
+          opened today.
+        </p>
+      )}
     </div>
   )
 }
@@ -74,6 +92,7 @@ function AuthGate() {
   if (status === "signed-out") return <Login />
   if (status === "unverified") return <VerifyEmail />
   if (status === "denied") return <AccessDenied />
+  if (status === "offline") return <ServerUnreachable />
 
   return (
     <Routes>
