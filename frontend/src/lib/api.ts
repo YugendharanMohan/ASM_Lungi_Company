@@ -19,11 +19,36 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * How long to wait for Firebase to produce an ID token.
+ *
+ * An expired token is refreshed over the network, and that call sits *before*
+ * the fetch below — so without a bound here a stalled refresh meant the
+ * request was never even attempted, the caller never saw an error, and the
+ * app sat on its loading spinner with nothing able to interrupt it. The
+ * request timeout could not help: there was no request yet.
+ */
+const TOKEN_TIMEOUT_MS = 20_000
+
 async function authHeader(): Promise<Record<string, string>> {
   if (!isFirebaseConfigured || !auth?.currentUser) return {}
   // Not cached: getIdToken refreshes on its own when the hour is nearly up,
   // and a stale token means a 401 mid-session.
-  const token = await auth.currentUser.getIdToken()
+  const token = await Promise.race([
+    auth.currentUser.getIdToken(),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            // Reported as unreachable rather than as a sign-in failure: from
+            // here the two are indistinguishable, and the caller already
+            // knows how to retry the unreachable case.
+            new ApiError(0, "Timed out preparing the sign-in token."),
+          ),
+        TOKEN_TIMEOUT_MS,
+      ),
+    ),
+  ])
   return { Authorization: `Bearer ${token}` }
 }
 
@@ -31,10 +56,16 @@ async function request<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    ...(init.body ? { "Content-Type": "application/json" } : {}),
-    ...(await authHeader()),
-    ...((init.headers as Record<string, string>) ?? {}),
+  let headers: Record<string, string>
+  try {
+    headers = {
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(await authHeader()),
+      ...((init.headers as Record<string, string>) ?? {}),
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    throw new ApiError(0, "Could not prepare the request. Try again.")
   }
 
   let response: Response

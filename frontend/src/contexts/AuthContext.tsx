@@ -59,6 +59,12 @@ interface AuthContextValue {
  */
 const WAKE_BUDGET_MS = 75_000
 
+/**
+ * Hard ceiling on the loading screen, comfortably past the retry budget so it
+ * only ever catches a hang the retry loop never saw.
+ */
+const LOADING_CEILING_MS = 95_000
+
 /** Pauses between attempts, in order. The last value repeats. */
 const RETRY_DELAYS_MS = [1_000, 2_000, 3_000, 5_000, 5_000, 8_000]
 
@@ -156,6 +162,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await loadProfile()
     })
   }, [devMode, loadProfile])
+
+  /**
+   * Last resort: never leave somebody on the spinner forever.
+   *
+   * Everything below is bounded individually, but "loading" depends on
+   * Firebase calling back at all — and if it never does, no timeout of ours
+   * is involved to fire. An unexplained wait with no way out is the one
+   * outcome worth ruling out categorically, so past the budget the screen
+   * that at least offers a Try again button wins.
+   */
+  useEffect(() => {
+    if (status !== "loading") return
+    const timer = window.setTimeout(() => {
+      setDeniedReason("The server did not answer in time.")
+      setStatus("offline")
+    }, LOADING_CEILING_MS)
+    return () => window.clearTimeout(timer)
+  }, [status])
 
   const signInWithGoogle = useCallback(async () => {
     await signInWithPopup(requireAuth(), googleProvider)
