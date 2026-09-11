@@ -52,6 +52,16 @@ interface AuthContextValue {
   logout: () => Promise<void>
 }
 
+/**
+ * How long to keep trying to reach a server that gives no answer at all.
+ * A cold start on Render's free plan takes roughly 25-45 seconds; this allows
+ * for a slow one without leaving somebody staring at a spinner indefinitely.
+ */
+const WAKE_BUDGET_MS = 75_000
+
+/** Pauses between attempts, in order. The last value repeats. */
+const RETRY_DELAYS_MS = [1_000, 2_000, 3_000, 5_000, 5_000, 8_000]
+
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -63,38 +73,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null)
   const [deniedReason, setDeniedReason] = useState("")
 
-  /** Ask the backend who we are. It owns the final say on access. */
-  const loadProfile = useCallback(async () => {
-    try {
-      const profile = await api.get<AppUser>("/me")
-      setUser(profile)
-      setStatus("signed-in")
-      setDeniedReason("")
-    } catch (error) {
-      setUser(null)
-      if (error instanceof ApiError) {
-        setDeniedReason(error.message)
-        // Status 0 means the request never reached the server — it was
-        // asleep, the phone is offline, or the host is down. Reporting that
-        // as "denied" told people an administrator had refused them, sending
-        // them to ask for access that they already had.
-        if (error.status === 0) {
-          setStatus("offline")
-          return
-        }
-        // 403 with an unverified email should land on the verify screen, not
-        // the generic denial — the user can fix that one themselves.
-        setStatus(
-          error.status === 403 && /not verified/i.test(error.message)
-            ? "unverified"
-            : "denied",
-        )
-      } else {
-        setDeniedReason("Something went wrong while signing in.")
-        setStatus("denied")
+  /** Turn a failed profile call into the screen that explains it. */
+  const settleFailure = useCallback((error: unknown) => {
+    setUser(null)
+    if (error instanceof ApiError) {
+      setDeniedReason(error.message)
+      // Status 0 means no answer ever arrived — asleep, offline, or blocked
+      // before a status was readable. Reporting that as "denied" told people
+      // an administrator had refused them, sending them to ask for access
+      // they already had.
+      if (error.status === 0) {
+        setStatus("offline")
+        return
       }
+      // 403 with an unverified email should land on the verify screen, not
+      // the generic denial — the user can fix that one themselves.
+      setStatus(
+        error.status === 403 && /not verified/i.test(error.message)
+          ? "unverified"
+          : "denied",
+      )
+    } else {
+      setDeniedReason("Something went wrong while signing in.")
+      setStatus("denied")
     }
   }, [])
+
+  /**
+   * Ask the backend who we are. It owns the final say on access.
+   *
+   * Retried while the server looks merely absent rather than unwilling.
+   * A sleeping API wakes on the first request but cannot answer it: Render
+   * replies 503 from its own edge, and that reply carries no CORS headers, so
+   * the browser rejects it before any status can be read — fetch simply
+   * throws. The one request that starts the wake is therefore guaranteed to
+   * fail, and giving up on it showed "cannot reach the server" to people
+   * whose server was, at that moment, starting up for them.
+   */
+  const loadProfile = useCallback(async () => {
+    const deadline = Date.now() + WAKE_BUDGET_MS
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const profile = await api.get<AppUser>("/me")
+        setUser(profile)
+        setStatus("signed-in")
+        setDeniedReason("")
+        return
+      } catch (error) {
+        // Only a total absence of an answer is worth asking again. Any status
+        // the server actually returned is its considered verdict, and the
+        // same question will get the same answer.
+        const unreachable = error instanceof ApiError && error.status === 0
+        if (!unreachable || Date.now() >= deadline) {
+          settleFailure(error)
+          return
+        }
+        const pause = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]
+        await new Promise((resolve) => setTimeout(resolve, pause))
+      }
+    }
+  }, [settleFailure])
 
   useEffect(() => {
     if (devMode) {
