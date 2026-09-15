@@ -11,14 +11,14 @@ wage record that does not pass through a human.
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.core.labels import loom_label
-from app.core.sheet_grid import build_sheet
-from app.core.vision import VisionUnavailable, is_configured, read_words
+from app.core.register_reader import ReadError, read_register
 from app.db.session import get_db
 from app.models import Loom, ProductionEntry, Shed, Worker, WorkerLeave
 from app.schemas.operations import (
@@ -32,8 +32,9 @@ from app.schemas.operations import (
 
 router = APIRouter(prefix="/production/import", tags=["production"])
 
-# A phone photo of a diary page is a few megabytes; anything far past that is a
-# mistake or an attempt to tie up the server, and Vision rejects it anyway.
+# A phone photo of a diary page is a few megabytes, and the app shrinks it to
+# well under one before upload. Anything far past this is a mistake, or an
+# attempt to tie the server up decoding it.
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 
 
@@ -44,11 +45,6 @@ async def extract_sheet(
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ) -> SheetOut:
-    if not is_configured():
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Reading photographs is not configured on this server.",
-        )
     if not (1 <= day_count <= 31):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "day_count must be 1-31.")
 
@@ -63,19 +59,12 @@ async def extract_sheet(
         )
 
     try:
-        words = read_words(content)
-    except VisionUnavailable as exc:
+        # CPU-bound for about a second. Run off the event loop so one person
+        # reading a sheet does not stall every other request meanwhile.
+        sheet = await run_in_threadpool(read_register, content, day_count)
+    except ReadError as exc:
         # The message already says what to do about it.
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
-
-    sheet = build_sheet(words, day_count=day_count)
-    if not sheet.columns:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "No loom columns could be found on that photograph. Take it square "
-            "to the page, with the row of loom numbers and every column of "
-            "figures inside the frame.",
-        )
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
 
     return SheetOut(
         columns=[

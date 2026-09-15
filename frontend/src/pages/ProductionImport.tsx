@@ -147,7 +147,11 @@ export function ProductionImport() {
         c.written_total === null
           ? null
           : Math.abs(columnTotal(c.cells) - c.written_total) < 0.005,
-      known: shedLoomNumbers.size === 0 || shedLoomNumbers.has(c.loom_number),
+      // "" or "?" is a header that could not be read. It is never known, even
+      // before the shed's looms have loaded: there is no loom to save it to.
+      known:
+        /^\d+$/.test(c.loom_number) &&
+        (shedLoomNumbers.size === 0 || shedLoomNumbers.has(c.loom_number)),
     }))
     const grand = Math.round(
       columns.reduce((s, c) => s + c.saved, 0) * 100,
@@ -226,6 +230,34 @@ export function ProductionImport() {
           },
     )
     setSheet({ ...sheet, columns })
+  }
+
+  /**
+   * The loom number and the written total are read off the page like any
+   * figure, and can be misread like any figure — so both must be correctable
+   * here. A misread total left uncorrectable would block saving for good.
+   */
+  function setLoomNumber(index: number, raw: string) {
+    if (!sheet) return
+    setSheet({
+      ...sheet,
+      columns: sheet.columns.map((c, i) =>
+        i === index ? { ...c, loom_number: raw.replace(/\D/g, "").slice(0, 3) } : c,
+      ),
+    })
+  }
+
+  function setWrittenTotal(index: number, raw: string) {
+    if (!sheet) return
+    const parsed = raw.trim() === "" ? null : Number(raw)
+    setSheet({
+      ...sheet,
+      columns: sheet.columns.map((c, i) =>
+        i === index
+          ? { ...c, written_total: parsed === null || Number.isNaN(parsed) ? null : parsed }
+          : c,
+      ),
+    })
   }
 
   function setColumnPick(index: number, value: PickType) {
@@ -466,9 +498,13 @@ export function ProductionImport() {
           {totals.unknown.length > 0 && (
             <ErrorNote
               className="mt-4"
-              message={`Shed ${shed?.name ?? ""} has no loom ${totals.unknown
-                .map((c) => c.loom)
-                .join(", ")}. Check the shed is right before saving.`}
+              message={
+                totals.unknown.some((c) => !/^\d+$/.test(c.loom))
+                  ? "A loom number across the top could not be read. Type it into the highlighted column heading."
+                  : `Shed ${shed?.name ?? ""} has no loom ${totals.unknown
+                      .map((c) => c.loom)
+                      .join(", ")}. Check the shed is right, or correct the loom number in the column heading.`
+              }
             />
           )}
 
@@ -479,9 +515,12 @@ export function ProductionImport() {
                   <th className="whitespace-nowrap border-b border-[var(--border-subtle)] px-2 py-2 text-left text-[11.5px] font-semibold uppercase tracking-[0.05em] text-[var(--text-tertiary)]">
                     Date
                   </th>
-                  {totals.columns.map((c) => (
+                  {/* Keyed by position, never by loom number: the number is
+                      editable here, and a key that changes on each keystroke
+                      remounts the input and throws the cursor out of it. */}
+                  {totals.columns.map((c, i) => (
                     <th
-                      key={c.loom}
+                      key={i}
                       className={cn(
                         "border-b border-[var(--border-subtle)] px-2 py-2 text-center text-[11.5px] font-semibold uppercase tracking-[0.05em]",
                         c.known
@@ -489,7 +528,22 @@ export function ProductionImport() {
                           : "text-[var(--danger)]",
                       )}
                     >
-                      {shed?.name ?? "?"} - {c.loom}
+                      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                        {shed?.name ?? "?"} -
+                        <input
+                          inputMode="numeric"
+                          value={c.loom === "?" ? "" : c.loom}
+                          placeholder="?"
+                          onChange={(e) => setLoomNumber(i, e.target.value)}
+                          aria-label={`Loom number for column ${i + 1}`}
+                          className={cn(
+                            "tabular w-9 rounded-[6px] border bg-[var(--surface)] px-1 py-0.5 text-center text-[12px] font-semibold outline-none focus:border-[var(--accent)]",
+                            c.known
+                              ? "border-[var(--border-subtle)] text-[var(--text-primary)]"
+                              : "border-[var(--danger)] text-[var(--danger)]",
+                          )}
+                        />
+                      </span>
                     </th>
                   ))}
                 </tr>
@@ -605,8 +659,8 @@ export function ProductionImport() {
                   <td className="px-2 py-2 text-[12px] font-semibold uppercase tracking-[0.05em] text-[var(--text-tertiary)]">
                     Total
                   </td>
-                  {totals.columns.map((c) => (
-                    <td key={c.loom} className="px-2 py-2 text-center">
+                  {totals.columns.map((c, i) => (
+                    <td key={i} className="px-2 py-2 text-center">
                       <span
                         className={cn(
                           "tabular block font-semibold",
@@ -620,24 +674,34 @@ export function ProductionImport() {
                           saving {c.saved.toFixed(2)}
                         </span>
                       )}
-                      {c.written !== null && (
-                        <span
+                      <label
+                        className={cn(
+                          "mt-0.5 flex items-center justify-center gap-1 text-[11px]",
+                          c.ok === false
+                            ? "text-[var(--danger)]"
+                            : "text-[var(--text-tertiary)]",
+                        )}
+                      >
+                        page
+                        <input
+                          inputMode="decimal"
+                          value={c.written ?? ""}
+                          placeholder="—"
+                          onChange={(e) => setWrittenTotal(i, e.target.value)}
+                          aria-label={`Total written on the page for loom ${c.loom}`}
                           className={cn(
-                            "tabular block text-[11px]",
+                            "tabular w-14 rounded-[6px] border bg-[var(--surface)] px-1 py-0.5 text-center text-[11.5px] outline-none focus:border-[var(--accent)]",
                             c.ok === false
-                              ? "text-[var(--danger)]"
-                              : "text-[var(--text-tertiary)]",
+                              ? "border-[var(--danger)]"
+                              : "border-[var(--border-subtle)]",
                           )}
-                        >
-                          {c.ok === false ? `page: ${c.written.toFixed(2)}` : "✓ matches"}
-                        </span>
-                      )}
+                        />
+                        {c.ok === true && <Check className="size-3 text-[var(--success)]" />}
+                      </label>
                       <span className="tabular block text-[11px] text-[var(--text-tertiary)]">
                         {formatCurrency(
                           c.saved *
-                            (sheet.columns[
-                              totals.columns.indexOf(c)
-                            ]?.rate_per_meter ??
+                            (sheet.columns[i]?.rate_per_meter ??
                               Number(rate) ??
                               0),
                         )}
@@ -651,7 +715,12 @@ export function ProductionImport() {
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border-subtle)] pt-5">
             <p className="text-[13px] text-[var(--text-secondary)]">
-              {totals.disagreeing.length > 0 ? (
+              {totals.unknown.length > 0 ? (
+                <span className="flex items-center gap-1.5 text-[var(--danger)]">
+                  <AlertTriangle className="size-4" />
+                  Saving is blocked until every column names a loom in this shed.
+                </span>
+              ) : totals.disagreeing.length > 0 ? (
                 <span className="flex items-center gap-1.5 text-[var(--danger)]">
                   <AlertTriangle className="size-4" />
                   Saving is blocked while a column disagrees with the page.
@@ -673,7 +742,12 @@ export function ProductionImport() {
               <Button
                 size="lg"
                 loading={saving}
-                disabled={totals.disagreeing.length > 0 || saving}
+                // An unknown loom used to warn and save anyway, and the server
+                // then skipped every figure in that column — metres dropped from
+                // somebody's wage behind a warning. Now it has to be fixed first.
+                disabled={
+                  totals.disagreeing.length > 0 || totals.unknown.length > 0 || saving
+                }
                 icon={<Upload className="size-4" />}
                 onClick={() => void handleSave()}
               >
